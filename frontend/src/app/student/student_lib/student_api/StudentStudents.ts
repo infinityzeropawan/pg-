@@ -263,40 +263,8 @@ export const studentsApi = {
     }
   },
 
-  // Mock generator just to show data if empty
-  seedMocksIfEmpty: (ownerId: string) => {
-    const profiles = db.getAll<StudentProfile>(STORAGE_KEYS.STUDENTS);
-    if (profiles.length > 0) return; // Already seeded
-
-    const ownerProps = db.getAll<any>(STORAGE_KEYS.PROPERTIES).filter(p => p.ownerId === ownerId);
-    if (ownerProps.length === 0) return;
-
-    const propId = ownerProps[0].id;
-    
-    // Create 3 fake students
-    const mockData = [
-      { name: 'Amit Singh', email: 'amit@example.com', phone: '9876543211', dues: 0, status: 'active' },
-      { name: 'Rahul Verma', email: 'rahul@example.com', phone: '9876543212', dues: 5000, status: 'on_notice' },
-      { name: 'Priya Das', email: 'priya@example.com', phone: '9876543213', dues: 0, status: 'checked_out' }
-    ];
-
-    mockData.forEach(d => {
-      const uId = createId('usr');
-      const pId = createId('tnt');
-      
-      db.insert(STORAGE_KEYS.USERS, {
-        id: uId, name: d.name, email: d.email, phone: d.phone, password: 'Password123',
-        role: 'student', status: 'Active', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-        createdBy: 'system', updatedBy: 'system', isDeleted: false
-      });
-
-      db.insert(STORAGE_KEYS.STUDENTS, {
-        id: pId, userId: uId, propertyId: propId, status: d.status as unknown,
-        duesAmount: d.dues, walletBalance: 1000, rentAmount: 8500, pgScore: 85,
-        parentName: 'Mr. ' + d.name.split(' ')[1], parentPhone: '9998887776',
-        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-        createdBy: 'system', updatedBy: 'system', isDeleted: false
-      });
-    });
+  // Mock generator removed
+  seedMocksIfEmpty: (_ownerId?: string) => {
+    // No-op: mock seeding deleted
   }
 };

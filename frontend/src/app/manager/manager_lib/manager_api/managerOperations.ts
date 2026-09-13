@@ -9,18 +9,8 @@ export const managerOperationsApi = {
   // Visitors
   listVisitors: (propertyId: string) => {
     if (!propertyId) return [];
-    // Auto-seed visitors
-                        const existing = db.getAll<BaseEntity & { propertyId?: string; isDeleted?: boolean; [key: string]: unknown }>(STORAGE_KEYS.VISITORS || 'spg_visitors').filter(v => v.propertyId === propertyId);
-    if (existing.length === 0) {
-                                    db.insert<BaseEntity & { propertyId?: string; isDeleted?: boolean; [key: string]: unknown }>(STORAGE_KEYS.VISITORS || 'spg_visitors', {
-        id: createId('req'), propertyId, studentName: 'Rahul Sharma', name: 'Suresh', phone: '9988776655', relation: 'Father', status: 'pending', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), isDeleted: false
-                                                                              });
-      db.insert<BaseEntity & { propertyId?: string; isDeleted?: boolean; [key: string]: unknown }>(STORAGE_KEYS.VISITORS || 'spg_visitors', {
-        id: createId('req'), propertyId, studentName: 'Amit Kumar', name: 'Delivery', phone: '9123456789', relation: 'Swiggy', status: 'checked_in', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), isDeleted: false
-                                                      });
-                                                    }
-                        return db.getAll<BaseEntity & { propertyId?: string; isDeleted?: boolean; [key: string]: unknown }>(STORAGE_KEYS.VISITORS || 'spg_visitors').filter(v => v.propertyId === propertyId && !v.isDeleted).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-          },
+    return db.getAll<BaseEntity & { propertyId?: string; isDeleted?: boolean; [key: string]: unknown }>(STORAGE_KEYS.VISITORS || 'spg_visitors').filter(v => v.propertyId === propertyId && !v.isDeleted).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  },
                   updateVisitorStatus: (id: string, status: 'approved' | 'rejected' | 'checked_in' | 'checked_out', managerId: string) => {
                                 const data: unknown = { status, updatedBy: managerId as string | undefined as string | undefined, updatedAt: new Date().toISOString() };
     if (status === 'checked_in') (data as Record<string, unknown>).checkInTime = new Date().toISOString();

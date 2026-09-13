@@ -34,8 +34,6 @@ export function OwnerStudentsMain() {
   useEffect(() => {
     if (!user) return;
     setLoading(true);
-    // Auto seed mocks if empty for demo purposes
-    studentsApi.seedMocksIfEmpty(user.id);
     
     const data = studentsApi.listByOwner(user.id);
     setStudents(data);

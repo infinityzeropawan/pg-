@@ -27,31 +27,7 @@ export const studentOperationsApi = {
 
   // Finance
   getInvoices: (studentId: string) => {
-    let invoices = db.getAll<any>(STORAGE_KEYS.INVOICES).filter(i => i.studentId === studentId && !i.isDeleted);
-    
-    // Auto-seed invoices if empty for demo
-    if (invoices.length === 0) {
-      db.insert(STORAGE_KEYS.INVOICES, {
-        id: createId('inv'), studentId, amount: 8500, status: 'Pending', type: 'Rent',
-        dueDate: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 5).toISOString(),
-        description: 'Rent for Next Month', isDeleted: false,
-        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), createdBy: 'system', updatedBy: 'system'
-      });
-      db.insert(STORAGE_KEYS.INVOICES, {
-        id: createId('inv'), studentId, amount: 8500, status: 'Pending', type: 'Rent',
-        dueDate: new Date(new Date().getFullYear(), new Date().getMonth(), 5).toISOString(),
-        description: 'Rent for Current Month', isDeleted: false,
-        createdAt: new Date(Date.now() - 864000000).toISOString(), updatedAt: new Date(Date.now() - 400000000).toISOString(), createdBy: 'system', updatedBy: 'system'
-      });
-      db.insert(STORAGE_KEYS.INVOICES, {
-        id: createId('inv'), studentId, amount: 8500, status: 'Pending', type: 'Rent',
-        dueDate: new Date(new Date().getFullYear(), new Date().getMonth() - 1, 5).toISOString(),
-        description: 'Rent for Last Month', isDeleted: false,
-        createdAt: new Date(Date.now() - 3000000000).toISOString(), updatedAt: new Date(Date.now() - 2500000000).toISOString(), createdBy: 'system', updatedBy: 'system'
-      });
-      invoices = db.getAll<any>(STORAGE_KEYS.INVOICES).filter(i => i.studentId === studentId && !i.isDeleted);
-    }
-    
+    const invoices = db.getAll<any>(STORAGE_KEYS.INVOICES).filter(i => i.studentId === studentId && !i.isDeleted);
     return invoices.sort((a,b) => new Date(b.dueDate).getTime() - new Date(a.dueDate).getTime());
   },
   payInvoice: (invoiceId: string, studentId: string, amount: number, userId: string) => {
@@ -122,28 +98,7 @@ export const studentOperationsApi = {
 
   // Complaints
   getComplaints: (studentId: string) => {
-    let complaints = db.getAll<any>(STORAGE_KEYS.COMPLAINTS).filter(c => c.studentId === studentId && !c.isDeleted);
-    
-    // Auto-seed complaints
-    if (complaints.length === 0) {
-      db.insert(STORAGE_KEYS.COMPLAINTS, {
-        id: createId('cmp'), studentId, title: 'AC not cooling', category: 'Electrical',
-        description: 'The AC in my room is not cooling properly.', status: 'Open', priority: 'High',
-        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), createdBy: 'system', updatedBy: 'system', isDeleted: false
-      });
-      db.insert(STORAGE_KEYS.COMPLAINTS, {
-        id: createId('cmp'), studentId, title: 'WiFi slow', category: 'Internet',
-        description: 'Internet speed is very slow since yesterday.', status: 'Resolved', priority: 'Medium',
-        createdAt: new Date(Date.now() - 172800000).toISOString(), updatedAt: new Date().toISOString(), createdBy: 'system', updatedBy: 'system', isDeleted: false
-      });
-      db.insert(STORAGE_KEYS.COMPLAINTS, {
-        id: createId('cmp'), studentId, title: 'Room cleaning missed', category: 'Housekeeping',
-        description: 'Housekeeping did not clean the room today.', status: 'In Progress', priority: 'Low',
-        createdAt: new Date(Date.now() - 86400000).toISOString(), updatedAt: new Date().toISOString(), createdBy: 'system', updatedBy: 'system', isDeleted: false
-      });
-      complaints = db.getAll<any>(STORAGE_KEYS.COMPLAINTS).filter(c => c.studentId === studentId && !c.isDeleted);
-    }
-    
+    const complaints = db.getAll<any>(STORAGE_KEYS.COMPLAINTS).filter(c => c.studentId === studentId && !c.isDeleted);
     return complaints.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   },
   createComplaint: (data: unknown, userId: string) => {
@@ -155,25 +110,7 @@ export const studentOperationsApi = {
 
   // Notices
   getNotices: (propertyId: string) => {
-    let notices = db.getAll<any>('spg_broadcasts').filter(n => n.propertyId === propertyId && !n.isDeleted);
-    
-    // Auto-seed notices
-    if (notices.length === 0) {
-      db.insert('spg_broadcasts', {
-        id: createId('brd'), propertyId, title: 'Rent Reminder', message: 'Please pay your rent for the upcoming month before the 5th to avoid late fees.',
-        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), createdBy: 'system', updatedBy: 'system', isDeleted: false
-      });
-      db.insert('spg_broadcasts', {
-        id: createId('brd'), propertyId, title: 'Pest Control Notice', message: 'Pest control will be conducted this Sunday from 10 AM to 2 PM.',
-        createdAt: new Date(Date.now() - 259200000).toISOString(), updatedAt: new Date().toISOString(), createdBy: 'system', updatedBy: 'system', isDeleted: false
-      });
-      db.insert('spg_broadcasts', {
-        id: createId('brd'), propertyId, title: 'Happy Diwali!', message: 'Wishing everyone a very Happy Diwali! Join us for a special dinner tonight.',
-        createdAt: new Date(Date.now() - 864000000).toISOString(), updatedAt: new Date().toISOString(), createdBy: 'system', updatedBy: 'system', isDeleted: false
-      });
-      notices = db.getAll<any>('spg_broadcasts').filter(n => n.propertyId === propertyId && !n.isDeleted);
-    }
-    
+    const notices = db.getAll<any>('spg_broadcasts').filter(n => n.propertyId === propertyId && !n.isDeleted);
     return notices.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   },
   submitNotice: (studentId: string, propertyId: string, moveOutDate: string, reason: string, userId: string) => {

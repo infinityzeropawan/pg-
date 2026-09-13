@@ -20,22 +20,6 @@ export interface Enquiry extends BaseEntity {
 export const managerEnquiriesApi = {
   listByProperty: (propertyId: string): Enquiry[] => {
     if (!propertyId) return [];
-    // Auto-seed to ensure page isn't empty for demo
-    const existing = db.getAll<Enquiry>(STORAGE_KEYS.ENQUIRIES).filter(e => e.propertyId === propertyId);
-    if (existing.length === 0) {
-      db.insert(STORAGE_KEYS.ENQUIRIES, {
-        id: createId('enq'), propertyId, name: 'Vikram Singh', phone: '9988776655', email: 'vikram@example.com',
-        status: 'new', expectedMoveIn: new Date().toISOString(), budget: 9000, notes: 'Looking for a single room.', isDeleted: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), createdBy: 'system', updatedBy: 'system'
-      });
-      db.insert(STORAGE_KEYS.ENQUIRIES, {
-        id: createId('enq'), propertyId, name: 'Priya Verma', phone: '9123456789',
-        status: 'contacted', budget: 7000, isDeleted: false, createdAt: new Date(Date.now() - 86400000).toISOString(), updatedAt: new Date().toISOString(), createdBy: 'system', updatedBy: 'system'
-      });
-      db.insert(STORAGE_KEYS.ENQUIRIES, {
-        id: createId('enq'), propertyId, name: 'Rohan Gupta', phone: '9876543210',
-        status: 'visited', isDeleted: false, createdAt: new Date(Date.now() - 172800000).toISOString(), updatedAt: new Date().toISOString(), createdBy: 'system', updatedBy: 'system'
-      });
-    }
     return db.getAll<Enquiry>(STORAGE_KEYS.ENQUIRIES)
              .filter(e => e.propertyId === propertyId && !e.isDeleted)
              .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());

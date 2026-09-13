@@ -4,49 +4,8 @@ import { createId } from '@/lib/utils/id';
 
 import type { Invoice, Payment, Expense } from '@/app/owner/owner_lib/owner_api/owner_finance/OwnerTypes';
 
-export function seedMocksIfEmpty(ownerId: string) {
-  const expenses = db.getAll<Expense>(STORAGE_KEYS.EXPENSES);
-  if (expenses.length > 0) return;
-
-  const ownerProps = db.getAll<any>(STORAGE_KEYS.PROPERTIES).filter(p => p.ownerId === ownerId);
-  if (ownerProps.length === 0) return;
-
-  const propId = ownerProps[0].id;
-  
-  // Seed diverse expenses for pie chart
-  const dummyExpenses = [
-    { category: 'maintenance', amount: 4500, desc: 'Plumbing repair' },
-    { category: 'electricity', amount: 12000, desc: 'Monthly EB Bill' },
-    { category: 'staff_salary', amount: 45000, desc: 'Manager & Guard Salary' },
-    { category: 'groceries', amount: 32000, desc: 'Mess Rations' },
-    { category: 'water', amount: 3000, desc: 'Water Tanker' }
-  ];
-
-  dummyExpenses.forEach(exp => {
-    db.insert(STORAGE_KEYS.EXPENSES, {
-      id: createId('exp'), propertyId: propId, category: exp.category as unknown, amount: exp.amount, date: new Date().toISOString(),
-      description: exp.desc, recordedBy: 'system', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-      createdBy: 'system', updatedBy: 'system', isDeleted: false
-    });
-  });
-
-  // Seed diverse payments for income metrics
-  db.insert(STORAGE_KEYS.PAYMENTS, {
-    id: createId('pay'), propertyId: propId, studentId: 'dummy1', amount: 25000, method: 'upi', date: new Date().toISOString(),
-    referenceNo: 'UPI123456789', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-    createdBy: 'system', updatedBy: 'system', isDeleted: false
-  });
-  db.insert(STORAGE_KEYS.PAYMENTS, {
-    id: createId('pay'), propertyId: propId, studentId: 'dummy2', amount: 45000, method: 'bank_transfer', date: new Date().toISOString(),
-    referenceNo: 'TRX987654321', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-    createdBy: 'system', updatedBy: 'system', isDeleted: false
-  });
-  
-  // Seed a pending invoice
-  db.insert(STORAGE_KEYS.INVOICES, {
-    id: createId('inv'), propertyId: propId, studentId: 'dummy3', amount: 12000, status: 'pending', dueDate: new Date().toISOString(), month: 'August 2026',
-    createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), createdBy: 'system', updatedBy: 'system', isDeleted: false
-  });
+export function seedMocksIfEmpty(_ownerId?: string) {
+  // No-op: mock seeding deleted
 }
 
 export function seedMonthlyInvoices(propertyId: string) {
