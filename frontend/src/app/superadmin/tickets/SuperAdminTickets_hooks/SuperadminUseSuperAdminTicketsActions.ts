@@ -12,19 +12,19 @@ export function SuperadminUseSuperAdminTicketsActions(refetch: () => void) {
   const [createModal, setCreateModal] = useState(false);
   const [formData, setFormData] = useState<CreateTicketFormData>(DEFAULT_CREATE_TICKET_FORM_DATA);
 
-  const handleCreate = (e: React.FormEvent) => {
+  const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!(formData as any).ownerId || !(formData as any).title || !(formData as any).description) return;
     
-    ticketsApi.createTicketOnBehalf(formData);
+    await ticketsApi.createTicketOnBehalf(formData);
     setCreateModal(false);
     setFormData(DEFAULT_CREATE_TICKET_FORM_DATA);
-    refetch();
+    await refetch();
   };
 
-  const handleStatusChange = (id: string, newStatus: string) => {
-    ticketsApi.updateTicketStatus(id, newStatus);
-    refetch();
+  const handleStatusChange = async (id: string, newStatus: string) => {
+    await ticketsApi.updateTicketStatus(id, newStatus);
+    await refetch();
   };
 
   return {

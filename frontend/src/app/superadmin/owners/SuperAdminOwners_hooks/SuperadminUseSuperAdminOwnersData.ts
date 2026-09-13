@@ -1,14 +1,14 @@
 // DATA FLOW: Mock data → useState → filter/search/paginate → UI
 'use client';
 
-import { useState, useEffect } from 'react';
-import { MOCK_OWNERS } from '@/app/superadmin/superadmin_lib/superadmin_mock_data';
+import { useState, useEffect, useCallback } from 'react';
+import { superadminOwnersApi } from '@/app/superadmin/superadmin_lib/superadmin_api/SuperadminOwners';
 import { ITEMS_PER_PAGE } from '@/app/superadmin/owners/SuperAdminOwners_utils/SuperAdminOwners.constants';
 import type { OwnerDirectoryItem, OwnerStatus } from '@/app/superadmin/owners/SuperAdminOwners_types/SuperAdminOwners.types';
 
 export function SuperadminUseSuperAdminOwnersData() {
-  const [owners] = useState<OwnerDirectoryItem[]>(MOCK_OWNERS as unknown as OwnerDirectoryItem[]);
-  const [loading] = useState(false);
+  const [owners, setOwners] = useState<OwnerDirectoryItem[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<OwnerStatus>('All');
   const [currentPage, setCurrentPage] = useState(1);
@@ -17,6 +17,15 @@ export function SuperadminUseSuperAdminOwnersData() {
   useEffect(() => {
     setCurrentPage(1);
   }, [statusFilter, search]);
+
+  const refetch = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await superadminOwnersApi.list();
+      setOwners(data.map((owner: any) => ({ ...owner, businessName: owner.name, userId: owner.id, planId: owner.planId || 'None', propertiesCount: owner.propertyCount || 0, bedsCount: owner.maxBeds || 0, occupancy: 0, collectionThisMonth: 0 })));
+    } finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void refetch(); }, [refetch]);
 
   const filtered = owners.filter(o => {
     if (statusFilter !== 'All' && o.status !== statusFilter) return false;
@@ -44,6 +53,6 @@ export function SuperadminUseSuperAdminOwnersData() {
     currentPage,
     totalPages,
     setCurrentPage,
-    refetch: () => {},
+    refetch,
   };
 }

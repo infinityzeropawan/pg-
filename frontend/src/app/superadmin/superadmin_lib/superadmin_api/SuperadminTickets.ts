@@ -1,6 +1,4 @@
-import { db } from '@/lib/storage/db';
-import { STORAGE_KEYS } from '@/lib/storage/keys';
-import { createId } from '@/lib/utils/id';
+import { superadminRequest } from './SuperadminClient';
 
 export interface Ticket {
   id: string;
@@ -18,36 +16,12 @@ export interface Ticket {
 }
 
 export const ticketsApi = {
-  listTickets() {
-    let SuperadminTickets = db.getAll<Ticket>('spg_tickets');
-    if (SuperadminTickets.length === 0) {
-      // Seed dummy SuperadminTickets
-      const dummy = [
-        { id: createId('tkt'), title: 'App not loading on mobile', description: 'Students are complaining app is stuck on white screen.', status: 'Open', priority: 'High', ownerId: 'own_1', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-        { id: createId('tkt'), title: 'Need custom GST format', description: 'Can you change the invoice format for my state?', status: 'Resolved', priority: 'Low', ownerId: 'own_1', createdAt: new Date(Date.now() - 86400000).toISOString(), updatedAt: new Date().toISOString() }
-      ];
-      dummy.forEach(d => db.insert('spg_tickets', d as unknown as import('@/lib/storage/db').BaseEntity));
-      SuperadminTickets = dummy as Ticket[];
-    }
-    return SuperadminTickets.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  async listTickets(): Promise<Ticket[]> {
+    const tickets = await superadminRequest<any[]>('/tickets');
+    return tickets.map((ticket) => ({ ...ticket, status: ticket.status.replaceAll('_', ' ').replace(/\b\w/g, (letter: string) => letter.toUpperCase()), priority: ticket.priority.replace(/\b\w/g, (letter: string) => letter.toUpperCase()), createdBy: ticket.createdBy || 'system', updatedBy: ticket.updatedBy || 'system', isDeleted: false }));
   },
   
-  createTicketOnBehalf(data: { ownerId: string, title: string, description: string, priority: string }) {
-    const ticket = {
-      id: createId('tkt'),
-      ...data,
-      status: 'Open',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      createdBy: 'superadmin',
-      updatedBy: 'superadmin',
-      isDeleted: false
-    };
-    db.insert('spg_tickets', ticket as unknown as import('@/lib/storage/db').BaseEntity);
-    return ticket;
-  },
+  createTicketOnBehalf(data: { ownerId: string, title: string, description: string, priority: string }) { return superadminRequest('/tickets', { method: 'POST', body: JSON.stringify(data) }); },
   
-  updateTicketStatus(id: string, status: string) {
-    db.update<Ticket>('spg_tickets', id, { status } as unknown as Partial<Ticket>);
-  }
+  updateTicketStatus(id: string, status: string) { return superadminRequest(`/tickets/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }); }
 };

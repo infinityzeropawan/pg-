@@ -2,29 +2,31 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { toast } from 'sonner';
-
-import { MOCK_OWNERS } from '@/app/superadmin/superadmin_lib/superadmin_mock_data';
+import { featureFlagsApi } from '@/app/superadmin/superadmin_lib/superadmin_api/SuperadminFeatureFlags';
+import { superadminOwnersApi } from '@/app/superadmin/superadmin_lib/superadmin_api/SuperadminOwners';
 
 import type { SuperAdminFeatureFlagOwner } from '@/app/superadmin/feature-flags/SuperAdminFeatureFlags_types/SuperAdminFeatureFlags.types';
 
 export function SuperadminUseSuperAdminFeatureFlagsData() {
-  const [owners, setOwners] = useState<SuperAdminFeatureFlagOwner[]>(MOCK_OWNERS as unknown as SuperAdminFeatureFlagOwner[]);
-  const [loading, setLoading] = useState(false);
+  const [owners, setOwners] = useState<SuperAdminFeatureFlagOwner[]>([]);
+  const [flags, setFlags] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   
   
-  const availableFeatures = ['whatsapp_alerts', 'custom_domain', 'smart_meters', 'payment_gateway'];
+  const availableFeatures = [...new Set(['whatsapp_alerts', 'custom_domain', 'smart_meters', 'payment_gateway', ...flags.map((flag) => flag.key)])];
 
   useEffect(() => {
-    setOwners(MOCK_OWNERS as unknown as SuperAdminFeatureFlagOwner[]);
-    setLoading(false);
+    void Promise.all([superadminOwnersApi.list(), featureFlagsApi.list()]).then(([ownerData, flagData]) => {
+      setOwners(ownerData.map((owner: any) => ({ id: owner.id, businessName: owner.name, planId: owner.planId || 'None', featureOverrides: flagData.filter((flag: any) => flag.ownerId === owner.id) })) as any);
+      setFlags(flagData);
+    }).finally(() => setLoading(false));
   }, []);
 
-  const handleToggle = (ownerId: string, feature: string) => {
-    // In a real system, this would call an API.
-    // For now, we simulate success.
-    // showToast(`Toggled ${feature.replace('_', ' ')} for owner ${ownerId}`, 'info');
+  const handleToggle = async (ownerId: string, feature: string) => {
+    const current = flags.find((flag) => flag.ownerId === ownerId && flag.key === feature);
+    const updated = await featureFlagsApi.update(feature, ownerId, !current?.isEnabled);
+    setFlags((items) => [...items.filter((flag) => flag.id !== (updated as any).id), updated]);
   };
 
   const filtered = owners.filter(o => {
@@ -41,5 +43,4 @@ export function SuperadminUseSuperAdminFeatureFlagsData() {
     availableFeatures
   };
 }
-
 

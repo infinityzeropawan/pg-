@@ -204,5 +204,17 @@ export const dashboardApi = {
       vacantBedsList,
       latestEnquiries
     };
+  },
+
+  // Backend API async methods
+  fetchBackendMetrics: async () => {
+    try {
+      const { adminRequest } = await import('@/app/owner/owner_lib/owner_api/AdminClient');
+      const data = await adminRequest<any>('/dashboard');
+      return data;
+    } catch {
+      return null;
+    }
   }
 };
+

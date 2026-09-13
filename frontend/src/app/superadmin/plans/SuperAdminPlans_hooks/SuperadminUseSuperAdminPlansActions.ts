@@ -10,13 +10,13 @@ import type { SuperAdminPlan } from '@/app/superadmin/plans/SuperAdminPlans_type
 export function SuperadminUseSuperAdminPlansActions(refetch: () => void) {
   const [editPlan, setEditPlan] = useState<SuperAdminPlan | null>(null);
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editPlan) return;
     
-    plansApi.updatePlan(editPlan.id, editPlan as unknown as any);
+    await plansApi.updatePlan(editPlan.id, editPlan as unknown as any);
     setEditPlan(null);
-    refetch();
+    await refetch();
   };
 
   return {

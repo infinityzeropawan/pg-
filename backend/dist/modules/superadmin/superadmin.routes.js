@@ -1,0 +1,32 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const auth_middleware_1 = require("../../middleware/auth.middleware");
+const superadmin_controller_1 = require("./superadmin.controller");
+const router = (0, express_1.Router)();
+// Public onboarding lead creation
+router.post('/owner-requests/public', superadmin_controller_1.createOwnerRequest);
+// Protected SuperAdmin Endpoints
+router.use(auth_middleware_1.authenticateJwt, (0, auth_middleware_1.authorizeRoles)('SUPERADMIN'));
+router.get('/dashboard', superadmin_controller_1.getDashboardStats);
+router.get('/analytics', superadmin_controller_1.getAnalytics);
+router.get('/owner-requests', superadmin_controller_1.listOwnerRequests);
+router.patch('/owner-requests/:id/status', superadmin_controller_1.updateOwnerRequestStatus);
+router.get('/owners', superadmin_controller_1.listOwners);
+router.post('/owners', superadmin_controller_1.createOwner);
+router.get('/owners/:id', superadmin_controller_1.getOwnerDetail);
+router.patch('/owners/:id/status', superadmin_controller_1.toggleOwnerSuspension);
+router.post('/owners/:id/reset-password', superadmin_controller_1.resetOwnerPassword);
+router.get('/plans', superadmin_controller_1.listPlans);
+router.post('/plans', superadmin_controller_1.createPlan);
+router.put('/plans/:id', superadmin_controller_1.updatePlan);
+router.get('/audit-logs', superadmin_controller_1.listAuditLogs);
+router.get('/settings', superadmin_controller_1.getSettings);
+router.put('/settings', superadmin_controller_1.updateSettings);
+router.get('/feature-flags', superadmin_controller_1.listFeatureFlags);
+router.put('/feature-flags', superadmin_controller_1.updateFeatureFlag);
+router.get('/tickets', superadmin_controller_1.listTickets);
+router.post('/tickets', superadmin_controller_1.createTicket);
+router.patch('/tickets/:id/status', superadmin_controller_1.updateTicketStatus);
+router.post('/broadcasts', superadmin_controller_1.createBroadcast);
+exports.default = router;

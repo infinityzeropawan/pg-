@@ -55,5 +55,25 @@ export const attendanceApi = {
     
     return db.getAll<StaffAttendance>(STORAGE_KEYS.STAFF_ATTENDANCE || 'spg_staff_attendance')
       .filter(a => propertyIds.includes(a.propertyId) && a.date === date && !a.isDeleted);
+  },
+
+  // Backend API async methods
+  fetchGateLogs: async (propertyId: string) => {
+    try {
+      const { adminRequest } = await import('@/app/owner/owner_lib/owner_api/AdminClient');
+      const data = await adminRequest<any[]>(`/properties/${propertyId}/gate-logs`);
+      return data;
+    } catch {
+      return [];
+    }
+  },
+
+  addGateLog: async (gateLogData: Record<string, unknown>) => {
+    const { adminRequest } = await import('@/app/owner/owner_lib/owner_api/AdminClient');
+    return adminRequest<any>('/gate-logs', {
+      method: 'POST',
+      body: JSON.stringify(gateLogData),
+    });
   }
 };
+

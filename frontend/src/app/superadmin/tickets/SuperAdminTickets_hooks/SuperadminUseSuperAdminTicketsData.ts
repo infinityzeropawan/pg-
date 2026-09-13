@@ -1,23 +1,32 @@
 // DATA FLOW: Mock data → useState → filter/paginate → UI
 'use client';
 
-import { useState, useEffect } from 'react';
-import { MOCK_TICKETS, MOCK_OWNERS } from '@/app/superadmin/superadmin_lib/superadmin_mock_data';
+import { useState, useEffect, useCallback } from 'react';
+import { ticketsApi } from '@/app/superadmin/superadmin_lib/superadmin_api/SuperadminTickets';
+import { superadminOwnersApi } from '@/app/superadmin/superadmin_lib/superadmin_api/SuperadminOwners';
 import { SUPER_ADMIN_TICKETS_ITEMS_PER_PAGE } from '@/app/superadmin/tickets/SuperAdminTickets_utils/SuperAdminTickets.constants';
 import type { SuperAdminTicket, TicketOwnerContext } from '@/app/superadmin/tickets/SuperAdminTickets_types/SuperAdminTickets.types';
 
 export function SuperadminUseSuperAdminTicketsData() {
-  const [tickets] = useState<SuperAdminTicket[]>(MOCK_TICKETS as unknown as SuperAdminTicket[]);
-  const [owners] = useState<TicketOwnerContext[]>(
-    MOCK_OWNERS.map(o => ({ id: o.id, name: o.name, businessName: o.businessName }))
-  );
-  const [loading] = useState(false);
+  const [tickets, setTickets] = useState<SuperAdminTicket[]>([]);
+  const [owners, setOwners] = useState<TicketOwnerContext[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     setCurrentPage(1);
   }, [search]);
+
+  const refetch = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [ticketData, ownerData] = await Promise.all([ticketsApi.listTickets(), superadminOwnersApi.list()]);
+      setTickets(ticketData as SuperAdminTicket[]);
+      setOwners(ownerData.map((owner: any) => ({ id: owner.id, name: owner.name, businessName: owner.name })));
+    } finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void refetch(); }, [refetch]);
 
   const filtered = tickets.filter(t =>
     t.title.toLowerCase().includes(search.toLowerCase()) ||
@@ -31,7 +40,7 @@ export function SuperadminUseSuperAdminTicketsData() {
   );
 
   const handleStatusChange = (id: string, newStatus: string) => {
-    console.log('Status change (mock):', id, newStatus);
+    void ticketsApi.updateTicketStatus(id, newStatus).then(refetch);
   };
 
   return {
@@ -44,6 +53,6 @@ export function SuperadminUseSuperAdminTicketsData() {
     totalPages,
     setCurrentPage,
     handleStatusChange,
-    refetch: () => {},
+    refetch,
   };
 }

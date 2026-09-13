@@ -9,25 +9,28 @@ import { settingsApi } from '@/app/superadmin/superadmin_lib/superadmin_api/Supe
 import type { SuperAdminSettingsData } from '@/app/superadmin/settings/SuperAdminSettings_types/SuperAdminSettings.types';
 
 export function SuperadminUseSuperAdminSettingsData() {
-  const [settings, setSettings] = useState<SuperAdminSettingsData | null>({} as SuperAdminSettingsData); // Will be populated by useEffect but no loading screen
-  const [loading, setLoading] = useState(false);
+  const [settings, setSettings] = useState<SuperAdminSettingsData | null>(null);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   
 
   useEffect(() => {
-    setSettings(settingsApi.getSettings() as SuperAdminSettingsData);
-    setLoading(false);
+    void settingsApi.getSettings().then((data) => setSettings(data as SuperAdminSettingsData)).catch((error) => toast.error(error.message)).finally(() => setLoading(false));
   }, []);
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!settings) return;
     setSaving(true);
-    settingsApi.updateSettings(settings as unknown as import('@/app/superadmin/superadmin_lib/superadmin_api/SuperadminSettings').PlatformSettings);
-    setTimeout(() => {
-      setSaving(false);
+    try {
+      const updated = await settingsApi.updateSettings(settings);
+      setSettings(updated as SuperAdminSettingsData);
       toast.success('Platform settings saved successfully.');
-    }, 500);
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to save platform settings.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return {
@@ -38,4 +41,3 @@ export function SuperadminUseSuperAdminSettingsData() {
     handleSave
   };
 }
-

@@ -22,7 +22,7 @@ export function OwnerCreate(data: Partial<Property> & { ownerId: string, generat
   }
 
   const planId = ownerSub.planId;
-  const plans = plansApi.listPlans();
+  const plans = plansApi.listPlansSync();
   // Sometimes seeded plans are 'plan_gold' instead of 'gold' due to seed.ts difference, handle safely:
   const plan = plans.find(p => p.id === planId || `plan_${p.id}` === planId || p.id === `plan_${planId}`) || plans[0];
   
@@ -181,8 +181,7 @@ export function OwnerCreate(data: Partial<Property> & { ownerId: string, generat
     actorId: data.ownerId,
     actorRole: 'owner',
     targetId: newProp.id,
-// @ts-expect-error
-    details: `Created property ${newPro(p as any).name}`,
+    details: `Created property ${newProp.name}`,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     createdBy: data.ownerId,

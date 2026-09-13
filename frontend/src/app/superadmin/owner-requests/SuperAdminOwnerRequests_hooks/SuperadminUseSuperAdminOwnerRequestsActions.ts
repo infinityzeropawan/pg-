@@ -28,18 +28,22 @@ export const SuperadminUseSuperAdminOwnerRequestsActions = (refetch: () => void)
     setRejectModalOpen(true);
   };
 
-  const handleHold = () => {
-    ownerRequestsApi.updateStatus(selectedReqId, 'Hold');
-    setHoldModalOpen(false);
-    toast.info('Request marked as Hold.');
-    refetch();
+  const handleHold = async () => {
+    try {
+      await ownerRequestsApi.updateStatus(selectedReqId, 'Hold');
+      setHoldModalOpen(false);
+      toast.info('Request marked as Hold.');
+      await refetch();
+    } catch (error: any) { toast.error(error.message || 'Unable to update request.'); }
   };
 
-  const handleRejectSubmit = (reason: string) => {
-    ownerRequestsApi.updateStatus(selectedReqId, 'Rejected', reason);
-    setRejectModalOpen(false);
-    toast.success('Request rejected successfully.');
-    refetch();
+  const handleRejectSubmit = async (reason: string) => {
+    try {
+      await ownerRequestsApi.updateStatus(selectedReqId, 'Rejected', reason);
+      setRejectModalOpen(false);
+      toast.success('Request rejected successfully.');
+      await refetch();
+    } catch (error: any) { toast.error(error.message || 'Unable to reject request.'); }
   };
 
   return {

@@ -147,5 +147,25 @@ export const teamApi = {
     if (!profile) return null;
 
     return { user, profile };
+  },
+
+  // Backend API async methods
+  fetchStaff: async () => {
+    try {
+      const { adminRequest } = await import('@/app/owner/owner_lib/owner_api/AdminClient');
+      const data = await adminRequest<any[]>('/staff');
+      return data;
+    } catch {
+      return [];
+    }
+  },
+
+  createBackendStaff: async (staffData: Record<string, unknown>) => {
+    const { adminRequest } = await import('@/app/owner/owner_lib/owner_api/AdminClient');
+    return adminRequest<any>('/staff', {
+      method: 'POST',
+      body: JSON.stringify(staffData),
+    });
   }
 };
+

@@ -1,8 +1,7 @@
-import { MOCK_DASHBOARD_STATS } from '../superadmin_mock_data';
+import { superadminRequest } from './SuperadminClient';
 
 export const platformApi = {
-  getDashboardStats: () => {
-    // FORCE HARDCODED MOCK DATA AS REQUESTED
-    return MOCK_DASHBOARD_STATS as any;
-  },
+  getDashboardStats: () => superadminRequest<Record<string, unknown>>('/dashboard'),
+  getAnalytics: () => superadminRequest<Record<string, unknown>>('/analytics'),
+  createBroadcast: (message: string) => superadminRequest('/broadcasts', { method: 'POST', body: JSON.stringify({ message }) }),
 };

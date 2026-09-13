@@ -1,27 +1,26 @@
 // DATA FLOW: [AI_TODO: Document data flow direction for SuperadminUseSuperAdminOwnerProfileData.ts]
 'use client';
 
-import { useState, useEffect } from 'react';
-import { MOCK_OWNERS, MOCK_REQUESTS, MOCK_PLANS, MOCK_TICKETS, MOCK_DASHBOARD_STATS } from '@/app/superadmin/superadmin_lib/superadmin_mock_data';
-
-import { useRouter } from 'next/navigation';
-
-import { ownersApi } from '@/app/owner/owner_lib/owner_api/owners';
+import { useState, useEffect, useCallback } from 'react';
+import { superadminOwnersApi } from '@/app/superadmin/superadmin_lib/superadmin_api/SuperadminOwners';
 
 import type { Owner360Data } from '@/app/superadmin/owners/SuperAdminOwners_types/SuperAdminOwners.types';
 
 export function SuperadminUseSuperAdminOwnerProfileData(id: string) {
-  const router = useRouter();
-  const [data, setData] = useState<Owner360Data | null>({ owner: MOCK_OWNERS.find(o => o.id === id) || MOCK_OWNERS[0], user: { status: 'Active' }, properties: [], managersCount: 2, studentsCount: 45, recentPayments: [], tickets: [] } as any);
-  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState<Owner360Data | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const loadData = () => {
-    setLoading(false);
-  };
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const result = await superadminOwnersApi.get(id);
+      setData({ ...result, owner: { ...result.owner, name: result.owner.fullName, businessName: result.owner.fullName, userId: result.owner.id, status: result.owner.isSuspended ? 'Suspended' : 'Active' }, user: { ...result.owner, name: result.owner.fullName, status: result.owner.isSuspended ? 'Suspended' : 'Active' } } as Owner360Data);
+    } finally { setLoading(false); }
+  }, [id]);
 
   useEffect(() => {
-    loadData();
-  }, [id, router]);
+    void loadData();
+  }, [loadData]);
 
   return { data, loading, refetch: loadData };
 }

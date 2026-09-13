@@ -10,6 +10,7 @@ import { SuperAdminDashboardAcquisitionChart } from '@/app/superadmin/dashboard/
 import { SuperadminUseSuperAdminDashboardData } from '@/app/superadmin/dashboard/SuperAdminDashboard_hooks/SuperadminUseSuperAdminDashboardData';
 import { SUPER_ADMIN_DASHBOARD_ACQUISITION_MOCK } from '@/app/superadmin/dashboard/SuperAdminDashboard_utils/SuperAdminDashboard.constants';
 import Link from 'next/link';
+import { platformApi } from '@/app/superadmin/superadmin_lib/superadmin_api/SuperadminPlatform';
 
 export default function SuperAdminDashboardPage() {
   const { data } = SuperadminUseSuperAdminDashboardData();
@@ -23,11 +24,15 @@ export default function SuperAdminDashboardPage() {
     );
   }
 
-  const handleBroadcast = (e: React.FormEvent) => {
+  const handleBroadcast = async (e: React.FormEvent) => {
     e.preventDefault();
     if(broadcastMessage.trim()) {
-      alert(`Broadcast sent to all active properties: ${broadcastMessage}`);
-      setBroadcastMessage('');
+      try {
+        await platformApi.createBroadcast(broadcastMessage);
+        setBroadcastMessage('');
+      } catch (error: any) {
+        alert(error.message || 'Unable to send broadcast');
+      }
     }
   };
 

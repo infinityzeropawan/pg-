@@ -33,13 +33,13 @@ export default function UnifiedLogin() {
     setError('');
   };
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
     try {
-      const user = api.login({ email, password });
+      const user = await api.login({ email, password });
       setSession(user);
       
       router.push(`/${user.role}/dashboard`);

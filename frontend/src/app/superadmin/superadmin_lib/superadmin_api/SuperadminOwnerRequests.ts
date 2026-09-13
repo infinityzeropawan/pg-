@@ -1,12 +1,10 @@
-import { db } from '@/lib/storage/db';
-import { MOCK_REQUESTS } from '../superadmin_mock_data';
-import { STORAGE_KEYS } from '@/lib/storage/keys';
-import { createId } from '@/lib/utils/id';
-
 import type { BaseEntity } from '@/lib/types/models';
+
+const BACKEND_URL = 'http://localhost:5000/api/v1';
 
 export interface OwnerRequest extends BaseEntity {
   name: string;
+  fullName?: string;
   businessName: string;
   email: string;
   phone: string;
@@ -16,39 +14,85 @@ export interface OwnerRequest extends BaseEntity {
   planId?: string;
   gst?: string;
   message?: string;
-  status: 'Pending' | 'Approved' | 'Rejected' | 'Hold';
+  status: 'Pending' | 'Approved' | 'Rejected' | 'Hold' | 'PENDING' | 'APPROVED' | 'REJECTED';
   [key: string]: unknown;
 }
 
 export const ownerRequestsApi = {
-  create(data: Omit<OwnerRequest, 'id' | 'createdAt' | 'updatedAt' | 'createdBy' | 'updatedBy' | 'isDeleted' | 'status'>) {
-    const req = {
-      
-      id: createId('req'),
-      
-      status: 'Pending',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      createdBy: 'public',
-      updatedBy: 'public',
-      isDeleted: false
-    };
-    return db.insert(STORAGE_KEYS.OWNER_REQUESTS, req as unknown as import('@/lib/storage/db').BaseEntity);
+  async create(data: Omit<OwnerRequest, 'id' | 'createdAt' | 'updatedAt' | 'createdBy' | 'updatedBy' | 'isDeleted' | 'status'>) {
+    try {
+      const res = await fetch(`${BACKEND_URL}/superadmin/owner-requests/public`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fullName: data.name || data.fullName,
+          email: data.email,
+          phone: data.phone,
+          city: data.city,
+          propertyCount: data.pgCount,
+          totalBeds: data.bedCount,
+          notes: data.message,
+        }),
+      });
+      const resData = await res.json();
+      if (res.ok && resData.success) return resData.data;
+    } catch (error) {
+      throw error;
+    }
+    throw new Error('Unable to submit owner request');
   },
   
-  list() {
-    return db.query<OwnerRequest>(STORAGE_KEYS.OWNER_REQUESTS, r => !r.isDeleted)
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  async list(): Promise<OwnerRequest[]> {
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+      if (token) {
+        const res = await fetch(`${BACKEND_URL}/superadmin/owner-requests`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const resData = await res.json();
+        if (res.ok && resData.success) {
+          return resData.data.map((r: any) => ({
+            id: r.id,
+            name: r.fullName,
+            fullName: r.fullName,
+            email: r.email,
+            phone: r.phone,
+            city: r.city,
+            pgCount: r.propertyCount,
+            bedCount: r.totalBeds,
+            status: r.status,
+            createdAt: r.createdAt,
+            updatedAt: r.updatedAt,
+            isDeleted: false
+          }));
+        }
+      }
+    } catch (error) {
+      throw error;
+    }
+    throw new Error('Superadmin authentication is required');
   },
   
-  getById(id: string) {
-    return db.getById<OwnerRequest>(STORAGE_KEYS.OWNER_REQUESTS, id);
-  },
   
-  updateStatus(id: string, status: 'Approved' | 'Rejected' | 'Hold', reason?: string) {
-    const patch: Partial<OwnerRequest> = { status };
-    if (reason) patch.message = reason; // Storing reject reason in message for now
-    return db.update<OwnerRequest>(STORAGE_KEYS.OWNER_REQUESTS, id, patch);
+  async updateStatus(id: string, status: 'Approved' | 'Rejected' | 'Hold' | 'APPROVED' | 'REJECTED', reason?: string) {
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+      if (token) {
+        const backendStatus = status.toUpperCase() === 'HOLD' ? 'UNDER_REVIEW' : status.toUpperCase();
+        const res = await fetch(`${BACKEND_URL}/superadmin/owner-requests/${id}/status`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ status: backendStatus, reason })
+        });
+        const resData = await res.json();
+        if (res.ok && resData.success) return resData.data;
+      }
+    } catch (error) {
+      throw error;
+    }
+    throw new Error('Superadmin authentication is required');
   }
 };
-

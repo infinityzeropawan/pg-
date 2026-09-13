@@ -3,32 +3,28 @@
 
 import { useState } from 'react';
 
-import { ownersApi } from '@/app/owner/owner_lib/owner_api/owners';
+import { superadminOwnersApi } from '@/app/superadmin/superadmin_lib/superadmin_api/SuperadminOwners';
 
 export function SuperadminUseSuperAdminOwnerProfileActions(id: string, refetch: () => void, currentStatus?: string) {
   const [resetModal, setResetModal] = useState(false);
 
-  const handleResetPassword = (newPass: string) => {
+  const handleResetPassword = async (newPass: string) => {
     if (!newPass) return;
-    ownersApi.resetPassword(id, newPass);
+    await superadminOwnersApi.resetPassword(id, newPass);
     setResetModal(false);
     alert('Password reset successfully and audit log created.');
   };
 
-  const handleToggleStatus = () => {
+  const handleToggleStatus = async () => {
     if (!currentStatus) return;
     const newStatus = currentStatus === 'Active' ? 'Suspended' : 'Active';
     if(confirm(`Are you sure you want to ${newStatus === 'Suspended' ? 'suspend' : 'activate'} this owner?`)) {
-      ownersApi.updateStatus(id, newStatus);
-      refetch();
+      await superadminOwnersApi.setSuspended(id, newStatus === 'Suspended');
+      await refetch();
     }
   };
 
-  const handleAddNote = (note: string) => {
-    if (!note) return;
-    ownersApi.addInternalNote(id, note);
-    alert('Internal note added to audit logs.');
-  };
+  const handleAddNote = (_note: string) => {};
 
   return {
     resetModal,

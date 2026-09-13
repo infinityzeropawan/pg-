@@ -50,5 +50,13 @@ export const bedsApi = {
       updatedAt: new Date().toISOString(), 
       updatedBy: actorId 
     });
+  },
+
+  updateBackendBedStatus: async (bedId: string, status: string) => {
+    const { adminRequest } = await import('@/app/owner/owner_lib/owner_api/AdminClient');
+    return adminRequest<any>(`/beds/${bedId}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    });
   }
 };

@@ -6,7 +6,7 @@ import { useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 
 import { ownerRequestsApi } from '@/app/superadmin/superadmin_lib/superadmin_api/SuperadminOwnerRequests';
-import { ownersApi } from '@/app/owner/owner_lib/owner_api/owners';
+import { superadminOwnersApi } from '@/app/superadmin/superadmin_lib/superadmin_api/SuperadminOwners';
 import { DEFAULT_CREATE_OWNER_FORM_DATA, PLAN_LIMITS } from '@/app/superadmin/create-owner/SuperAdminCreateOwner_utils/SuperAdminCreateOwner.constants';
 
 import type { OwnerFormData, OwnerFormErrors, CreatedCredentials } from '@/app/superadmin/create-owner/SuperAdminCreateOwner_types/SuperAdminCreateOwner.types';
@@ -26,7 +26,8 @@ export function SuperadminUseSuperAdminCreateOwner() {
   // Load from request ID if present
   useEffect(() => {
     if (requestId) {
-      const req = ownerRequestsApi.getById(requestId);
+      void ownerRequestsApi.list().then((requests) => {
+      const req = requests.find((request) => request.id === requestId);
       if (req) {
         const planId = req.planId || 'none';
         const limits = PLAN_LIMITS[planId] || PLAN_LIMITS.none;
@@ -45,6 +46,7 @@ export function SuperadminUseSuperAdminCreateOwner() {
           ...limits
         }));
       }
+      });
     }
   }, [requestId]);
 
@@ -71,13 +73,20 @@ export function SuperadminUseSuperAdminCreateOwner() {
     return true;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
 
     setLoading(true);
     try {
-      ownersApi.createOwner({ ...(formData as any), requestId });
+      await superadminOwnersApi.create({
+        fullName: (formData as any).name,
+        email: (formData as any).email,
+        phone: (formData as any).phone,
+        temporaryPassword: (formData as any).temporaryPassword,
+        planId: (formData as any).planId === 'none' ? undefined : (formData as any).planId,
+        requestId: requestId || undefined,
+      });
       setCreatedCreds({ email: (formData as any).email, password: (formData as any).temporaryPassword });
       setSuccess(true);
     } catch (err: any) {

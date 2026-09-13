@@ -1,11 +1,7 @@
 import type { Metadata } from 'next';
 
-import { Inter } from 'next/font/google';
-
 import '@/app/globals.css';
 import { Providers } from '@/app/providers';
-
-const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 
 export const metadata: Metadata = {
   title: 'SmartPG — Hostel Operating System',
@@ -19,7 +15,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body suppressHydrationWarning className={`${inter.variable} font-sans antialiased min-h-screen`}>
+      <body suppressHydrationWarning className="font-sans antialiased min-h-screen">
         <Providers>
           {children}
         </Providers>

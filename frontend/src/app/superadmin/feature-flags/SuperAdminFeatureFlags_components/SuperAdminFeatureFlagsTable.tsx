@@ -35,7 +35,7 @@ export const SuperAdminFeatureFlagsTable: React.FC<SuperAdminFeatureFlagsTablePr
                   <input 
                     type="checkbox" 
                     onChange={() => onToggle(o.id, f)}
-                    defaultChecked={Math.random() > 0.5} // Simulating random state for UI
+                    checked={(o as any).featureOverrides?.find((flag: any) => flag.key === f)?.isEnabled || false}
                     className="w-4 h-4 text-primary bg-input border rounded cursor-pointer focus:ring-primary"
                   />
                 </td>

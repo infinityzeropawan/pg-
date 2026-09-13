@@ -114,5 +114,25 @@ export const roomsApi = {
       updatedBy: actorId,
       isDeleted: false
     } as unknown);
+  },
+
+  // Backend API async methods
+  fetchRoomsByProperty: async (propertyId: string) => {
+    try {
+      const { adminRequest } = await import('@/app/owner/owner_lib/owner_api/AdminClient');
+      const data = await adminRequest<any[]>(`/properties/${propertyId}/rooms`);
+      return data;
+    } catch {
+      return roomsApi.listByProperty(propertyId);
+    }
+  },
+
+  createBackendRoom: async (roomData: { propertyId: string; roomNumber: string; floorNumber: number; sharingType: number; baseRentMonthly: number; depositAmount: number }) => {
+    const { adminRequest } = await import('@/app/owner/owner_lib/owner_api/AdminClient');
+    return adminRequest<any>('/rooms', {
+      method: 'POST',
+      body: JSON.stringify(roomData),
+    });
   }
 };
+

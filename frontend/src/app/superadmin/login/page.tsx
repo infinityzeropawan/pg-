@@ -16,12 +16,12 @@ export default function SuperAdminLogin() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      const user = api.login({ email, password, expectedRole: 'superadmin' });
+      const user = await api.login({ email, password, expectedRole: 'superadmin' });
       setSession(user);
       router.push('/superadmin/dashboard');
     } catch (err: any) {

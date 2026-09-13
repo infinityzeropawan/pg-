@@ -2,12 +2,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { MOCK_AUDIT_LOGS } from '@/app/superadmin/superadmin_lib/superadmin_mock_data';
+import { superadminRequest } from '@/app/superadmin/superadmin_lib/superadmin_api/SuperadminClient';
 import type { SuperAdminAuditLog } from '@/app/superadmin/audit-logs/SuperAdminAuditLogs_types/SuperAdminAuditLogs.types';
 
 export function SuperadminUseSuperAdminAuditLogsData() {
-  const [logs] = useState<SuperAdminAuditLog[]>(MOCK_AUDIT_LOGS as SuperAdminAuditLog[]);
-  const [loading] = useState(false);
+  const [logs, setLogs] = useState<SuperAdminAuditLog[]>([]);
+  const [loading, setLoading] = useState(true);
 
   // Filters
   const [search, setSearch] = useState('');
@@ -16,6 +16,10 @@ export function SuperadminUseSuperAdminAuditLogsData() {
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
+
+  useEffect(() => {
+    void superadminRequest<any[]>('/audit-logs').then((items) => setLogs(items.map((item) => ({ ...item, targetId: item.entityId, entity: item.entityType, details: item.details || '' })))).finally(() => setLoading(false));
+  }, []);
 
   // Reset page when filter or search changes
   useEffect(() => {

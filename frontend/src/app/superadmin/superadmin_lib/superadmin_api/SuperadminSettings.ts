@@ -1,6 +1,4 @@
-import { db } from '@/lib/storage/db';
-import { STORAGE_KEYS } from '@/lib/storage/keys';
-import { createId } from '@/lib/utils/id';
+import { superadminRequest } from './SuperadminClient';
 
 export interface PlatformSettings {
   id: string;
@@ -19,92 +17,47 @@ export interface PlatformSettings {
 }
 
 export const settingsApi = {
-  getSettings(): PlatformSettings {
-    const records = db.getAll<PlatformSettings>('spg_settings');
-    if (records.length > 0) {
-      return records[0]!;
-    }
-    // Default SuperadminSettings if not seeded
-    const def: PlatformSettings = {
-      id: 'set_1',
-      otpEnabled: false,
-      defaultNightEntryTime: '22:00',
-      defaultNoticeDays: 30,
-      supportPhone: '+91 9999999999',
-      maintenanceMode: false,
-      whatsappEnabled: false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      createdBy: 'system',
-      updatedBy: 'system',
-      isDeleted: false
-    };
-    db.insert('spg_settings', def as unknown as import('@/lib/storage/db').BaseEntity);
-    return def;
+  async getSettings(): Promise<PlatformSettings> {
+    const settings = await superadminRequest<any>('/settings');
+    return { ...settings, createdBy: 'system', updatedBy: settings.updatedBy || 'system', isDeleted: false };
   },
   
-  updateSettings(data: Partial<PlatformSettings>) {
-    const current = this.getSettings();
-    const updated = { ...current, ...data };
-    db.update<PlatformSettings>('spg_settings', current.id, updated);
-    
-    db.insert(STORAGE_KEYS.AUDIT_LOGS, {
-      id: createId('aud'),
-      action: 'SETTINGS_UPDATED',
-      actorId: 'superadmin',
-      targetId: 'platform',
-      details: 'Platform SuperadminSettings were updated',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      createdBy: 'superadmin',
-      updatedBy: 'superadmin',
-      isDeleted: false
-    });
-    
-    return updated;
+  async updateSettings(data: any) {
+    const settings = await superadminRequest<any>('/settings', { method: 'PUT', body: JSON.stringify(data) });
+    return { ...settings, createdBy: 'system', updatedBy: settings.updatedBy || 'system', isDeleted: false } as PlatformSettings;
   },
 
   exportDatabase(): string {
     if (typeof window === 'undefined') return '{}';
-    const data: Record<string, unknown> = {};
+    const dump: Record<string, unknown> = {};
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (key && key.startsWith('spg_')) {
+      if (key && (key.startsWith('spg_') || key.startsWith('app_') || key.includes('token'))) {
         try {
-          data[key] = JSON.parse(localStorage.getItem(key) || '[]');
+          dump[key] = JSON.parse(localStorage.getItem(key) || 'null');
         } catch {
-          data[key] = localStorage.getItem(key);
+          dump[key] = localStorage.getItem(key);
         }
       }
     }
-    return JSON.stringify(data, null, 2);
+    return JSON.stringify(dump, null, 2);
   },
 
-  importDatabase(jsonData: string): boolean {
+  importDatabase(jsonString: string): boolean {
     if (typeof window === 'undefined') return false;
     try {
-      const data = JSON.parse(jsonData);
-      // Clear existing spg_ keys
-      const keysToRemove = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && key.startsWith('spg_')) {
-          keysToRemove.push(key);
+      const parsed = JSON.parse(jsonString);
+      if (typeof parsed !== 'object' || !parsed) return false;
+      Object.entries(parsed).forEach(([key, value]) => {
+        if (typeof value === 'string') {
+          localStorage.setItem(key, value);
+        } else {
+          localStorage.setItem(key, JSON.stringify(value));
         }
-      }
-      keysToRemove.forEach(k => localStorage.removeItem(k));
-
-      // Import new data
-      for (const [key, value] of Object.entries(data)) {
-        if (key.startsWith('spg_')) {
-          localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
-        }
-      }
+      });
       return true;
-    } catch (err: any) {
-      console.error('Import failed', err);
+    } catch {
       return false;
     }
   }
 };
-

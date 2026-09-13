@@ -102,5 +102,25 @@ export const studentsApi = {
         localStorage.setItem(STORAGE_KEYS.BEDS, JSON.stringify(beds));
       }
     }
+  },
+
+  // Backend API async methods
+  fetchTenants: async () => {
+    try {
+      const { adminRequest } = await import('@/app/owner/owner_lib/owner_api/AdminClient');
+      const data = await adminRequest<any[]>('/tenants');
+      return data;
+    } catch {
+      return [];
+    }
+  },
+
+  onboardBackendTenant: async (tenantData: Record<string, unknown>) => {
+    const { adminRequest } = await import('@/app/owner/owner_lib/owner_api/AdminClient');
+    return adminRequest<any>('/tenants/onboard', {
+      method: 'POST',
+      body: JSON.stringify(tenantData),
+    });
   }
 };
+

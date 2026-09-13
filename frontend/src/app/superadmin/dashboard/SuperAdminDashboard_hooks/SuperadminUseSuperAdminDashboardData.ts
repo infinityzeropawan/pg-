@@ -1,13 +1,35 @@
 // DATA FLOW: Mock data → useState (synchronous) → DashboardPage
 'use client';
 
-import { useState } from 'react';
-import { MOCK_DASHBOARD_STATS } from '@/app/superadmin/superadmin_lib/superadmin_mock_data';
+import { useCallback, useEffect, useState } from 'react';
+import { platformApi } from '@/app/superadmin/superadmin_lib/superadmin_api/SuperadminPlatform';
 import type { SuperAdminDashboardData } from '@/app/superadmin/dashboard/SuperAdminDashboard_types/SuperAdminDashboard.types';
 
 export function SuperadminUseSuperAdminDashboardData() {
-  const [data] = useState<SuperAdminDashboardData>(MOCK_DASHBOARD_STATS as unknown as SuperAdminDashboardData);
-  const [loading] = useState<boolean>(false);
+  const [data, setData] = useState<SuperAdminDashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  return { data, loading };
+  const refetch = useCallback(async () => {
+    setLoading(true);
+    try {
+      const raw: any = await platformApi.getDashboardStats();
+      setData({
+        activeOwnersCount: raw.totalOwners,
+        pendingRequestsCount: raw.pendingRequests,
+        activePropertiesCount: raw.totalProperties,
+        totalStudentsCount: raw.occupiedBeds,
+        mrr: raw.mrr,
+        occupancyPercentage: raw.occupancyRate,
+        openTicketsCount: raw.openTicketsCount,
+        expiringPlansCount: raw.expiringPlansCount,
+        latestRequests: (raw.latestRequests || []).map((request: any) => ({ ...request, name: request.fullName, pgCount: request.propertyCount, bedCount: request.totalBeds, status: request.status === 'UNDER_REVIEW' ? 'Hold' : request.status[0] + request.status.slice(1).toLowerCase() })),
+        recentAuditLogs: raw.recentAuditLogs || [],
+        ownersByPlan: [],
+      });
+    } finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { void refetch(); }, [refetch]);
+
+  return { data, loading, refetch };
 }
