@@ -22,10 +22,10 @@ pipeline {
         stage('Frontend: Install & Build') {
             steps {
                 echo 'Installing Next.js dependencies...'
-                sh 'npm install'
+                sh 'cd frontend && npm install'
                 
                 echo 'Building Next.js for production...'
-                sh 'npm run build' 
+                sh 'cd frontend && npm run build' 
             }
         }
 
@@ -33,7 +33,7 @@ pipeline {
             steps {
                 echo "Deploying Next.js Frontend to PM2 on Port ${FRONTEND_PORT}..."
                 // PORT variable force karega Next.js ko define kiye gaye port par chalne ke liye
-                sh 'PORT=$FRONTEND_PORT pm2 restart next-frontend-pgmanagement || PORT=$FRONTEND_PORT pm2 start npm --name "next-frontend-pgmanagement" -- run start'
+                sh 'cd frontend && PORT=$FRONTEND_PORT pm2 restart next-frontend-pgmanagement || cd frontend && PORT=$FRONTEND_PORT pm2 start npm --name "next-frontend-pgmanagement" -- run start'
             }
         }
 
