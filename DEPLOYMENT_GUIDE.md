@@ -1,121 +1,65 @@
 # Smart PG Management Platform — Production Deployment Guide
 ## Deploying Next.js Frontend + Express Backend on Vercel with Neon PostgreSQL
 
-This document provides a step-by-step guide for deploying the Smart PG Management SaaS application to production using **Vercel** (for Frontend & Express API Backend) and **Neon Serverless PostgreSQL** (for the database).
+This document provides instructions for deploying the Smart PG Management multi-tenant SaaS application to **Vercel** with **Neon Serverless PostgreSQL**.
 
 ---
 
-## Architecture Overview
+## 2 Supported Vercel Deployment Options
 
-```mermaid
-graph TD
-    Client[Browser / Web Apps] -->|HTTPS| Frontend[Vercel - Next.js App]
-    Client -->|API Requests| Backend[Vercel / Render / Railway - Express API]
-    Backend -->|Pooled Connection| NeonDB[(Neon Serverless PostgreSQL)]
-    Backend -->|Prisma Client| NeonDB
-```
+### Option A: Monorepo Unified Deployment (Single Vercel Project) — Recommended
+Use the root [`vercel.json`](file:///home/pawan/Desktop/pg%20management/vercel.json) file to deploy both the Next.js frontend and Express backend under a single domain.
 
----
+- **How it works:**
+  - Requests starting with `/api/v1/*` are routed to the Express Serverless Function (`backend/dist/index.js`).
+  - All other routes are served by the Next.js frontend app (`frontend`).
 
-## Step 1: Create and Configure Neon PostgreSQL Database
-
-1. Sign up or log in at [Neon Tech](https://neon.tech/).
-2. Create a new project (e.g., `smart-pg-production`).
-3. Select your preferred cloud region (e.g., `ap-south-1` for India / Asia Pacific).
-4. Copy your database connection strings from the Neon Dashboard:
-   - **Pooled Connection String** (`DATABASE_URL`):
-     ```env
-     postgresql://user:password@ep-xyz-pooler.region.aws.neon.tech/neondb?sslmode=require
-     ```
-   - **Direct Connection String** (`DIRECT_URL`):
-     ```env
-     postgresql://user:password@ep-xyz.region.aws.neon.tech/neondb?sslmode=require
-     ```
+- **Vercel Project Setup:**
+  1. Connect your GitHub repository (`infinityzeropawan/pg-`) to Vercel.
+  2. Leave **Root Directory** as `./` (project root).
+  3. Set **Build Command**: `cd backend && npm run build && cd ../frontend && npm run build`
+  4. Add Environment Variables:
+     - `DATABASE_URL` = `postgresql://user:pass@ep-xyz-pooler.neon.tech/neondb?sslmode=require`
+     - `DIRECT_URL` = `postgresql://user:pass@ep-xyz.neon.tech/neondb?sslmode=require`
+     - `JWT_SECRET` = `your_jwt_production_secret`
+     - `JWT_REFRESH_SECRET` = `your_jwt_refresh_production_secret`
+     - `NEXT_PUBLIC_API_URL` = (leave empty or set to `/` since `/api/v1` routes to the backend on the same domain)
 
 ---
 
-## Step 2: Configure Environment Variables
+### Option B: Two Separate Vercel Projects (Frontend + Backend)
 
-### Backend Environment Variables (`backend/.env` & Vercel Backend Project)
+#### Project 1: Express Backend (`smart-pg-backend`)
+1. Create a Vercel project with **Root Directory**: `backend`.
+2. Set **Build Command**: `npm run build`.
+3. Add Environment Variables: `DATABASE_URL`, `DIRECT_URL`, `JWT_SECRET`, `JWT_REFRESH_SECRET`.
+4. Copy assigned URL (e.g., `https://smart-pg-backend.vercel.app`).
 
-| Key | Example Value | Description |
-| :--- | :--- | :--- |
-| `PORT` | `5000` | Port for Express server (local) |
-| `NODE_ENV` | `production` | Node environment mode |
-| `DATABASE_URL` | `postgresql://user:pass@ep-xyz-pooler.neon.tech/neondb?sslmode=require` | Neon Pooled Connection String |
-| `DIRECT_URL` | `postgresql://user:pass@ep-xyz.neon.tech/neondb?sslmode=require` | Neon Direct Connection String |
-| `JWT_SECRET` | `prod_jwt_super_secret_key_change_in_prod` | Secret key for access token signing |
-| `JWT_EXPIRES_IN` | `7d` | Access token lifespan |
-| `JWT_REFRESH_SECRET` | `prod_jwt_refresh_secret_key_change_in_prod` | Secret key for refresh token |
-| `JWT_REFRESH_EXPIRES_IN` | `30d` | Refresh token lifespan |
-
-### Frontend Environment Variables (`frontend/.env.local` & Vercel Frontend Project)
-
-| Key | Example Value | Description |
-| :--- | :--- | :--- |
-| `NEXT_PUBLIC_API_URL` | `https://smart-pg-backend.vercel.app` | URL of deployed Express API backend |
+#### Project 2: Next.js Frontend (`smart-pg-frontend`)
+1. Create a Vercel project with **Root Directory**: `frontend`.
+2. Set **Framework**: Next.js.
+3. Add Environment Variable:
+   - `NEXT_PUBLIC_API_URL` = `https://smart-pg-backend.vercel.app`
 
 ---
 
-## Step 3: Run Database Migrations & Seed Data on Neon
+## Neon Database Setup Steps
 
-From your local machine or CI/CD terminal with `DATABASE_URL` and `DIRECT_URL` pointing to Neon:
-
-```bash
-cd backend
-
-# Generate Prisma Client
-npx prisma generate
-
-# Push Database Schema to Neon Postgres
-npx prisma db push
-
-# Seed Initial Data (Superadmin, Plans, Default Categories)
-npx prisma db seed
-```
-
----
-
-## Step 4: Deploy Express Backend API to Vercel
-
-1. Install Vercel CLI (or use GitHub Integration):
-   ```bash
-   npm i -g vercel
-   ```
-2. Navigate to backend directory:
+1. Create a Neon Postgres database at [neon.tech](https://neon.tech/).
+2. Copy the pooled connection string (`DATABASE_URL`) and direct connection string (`DIRECT_URL`).
+3. Run migrations and seed data from your terminal:
    ```bash
    cd backend
-   npm run build
-   vercel
+   npx prisma generate
+   npx prisma db push
+   npx prisma db seed
    ```
-3. In Vercel Project Settings for Backend:
-   - **Framework Preset**: Other / Node.js
-   - **Build Command**: `npm run build`
-   - **Output Directory**: `dist`
-   - Add all environment variables listed in **Step 2 (Backend)**.
-4. Copy the assigned backend deployment URL (e.g., `https://smart-pg-backend.vercel.app`).
 
 ---
 
-## Step 5: Deploy Next.js Frontend App to Vercel
+## Production Verification Checklist
 
-1. Navigate to frontend directory or connect GitHub repository to Vercel.
-2. Create a new Vercel Project:
-   - **Root Directory**: `frontend`
-   - **Framework Preset**: Next.js
-   - **Build Command**: `next build`
-   - **Output Directory**: `.next`
-3. Add Environment Variable:
-   - `NEXT_PUBLIC_API_URL` = `https://smart-pg-backend.vercel.app` (your backend API URL from Step 4).
-4. Click **Deploy**.
-
----
-
-## Step 6: Production Verification Checklist
-
-- [x] Prisma datasource configured to `postgresql` with `DATABASE_URL` and `DIRECT_URL`.
-- [x] Schema pushed to Neon DB with zero errors.
-- [x] `NEXT_PUBLIC_API_URL` configured in Vercel Frontend project settings.
-- [x] JWT secrets generated securely for production environment.
-- [x] Multi-tenant scoping (`ownerId`, `propertyId`) enforced across all API routes.
-- [x] Health check verified at `https://smart-pg-backend.vercel.app/health`.
+- [x] Root [`vercel.json`](file:///home/pawan/Desktop/pg%20management/vercel.json) created for unified monorepo routing.
+- [x] Backend [`vercel.json`](file:///home/pawan/Desktop/pg%20management/backend/vercel.json) created for standalone backend project.
+- [x] Prisma configured for PostgreSQL with `DATABASE_URL` and `DIRECT_URL`.
+- [x] All TypeScript code passes build checks (`0 errors`).
