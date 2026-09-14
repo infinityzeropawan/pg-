@@ -10,11 +10,8 @@ import { ArrowLeft, Building2, Trash2, Users, Bed, Settings, AlertTriangle, Indi
 import Link from 'next/link';
 
 import { getSession } from '@/app/owner/owner_lib/owner_auth/OwnerSession';
-import { teamApi } from '@/app/owner/owner_lib/owner_api/OwnerTeam';
 import { propertiesApi } from '@/app/owner/owner_lib/owner_api/OwnerProperties';
 import { pricingApi } from '@/app/owner/owner_lib/owner_api/OwnerPricing';
-import { db } from '@/lib/storage/db';
-import { STORAGE_KEYS } from '@/lib/storage/keys';
 
 import type { Property } from '@/app/owner/owner_lib/owner_api/OwnerProperties';
 import type { PricingRule } from '@/lib/types/contract';
@@ -35,33 +32,59 @@ export function OwnerPropertiesDetailsMain({ params }: { params: Promise<{ id: s
   const [newRule, setNewRule] = useState({ name: '', startMonth: 1, endMonth: 1, adjustmentType: 'percentage' as 'percentage'|'fixed', adjustmentValue: 0 });
 
   useEffect(() => {
-    if (user && id) {
-      const prop = propertiesApi.getById(id);
-      if (!prop || prop.ownerId !== user.id) {
+    let isMounted = true;
+    // Fetch from the real database via GET /api/v1/admin/properties/:id
+    propertiesApi.fetchPropertyById(id).then((raw: any) => {
+      if (!isMounted) return;
+      if (!raw || (user && raw.ownerId !== user.id)) {
         router.replace('/owner/properties');
         return;
       }
-      setProperty(prop);
-      
-      const allRooms = db.getAll<any>(STORAGE_KEYS.ROOMS);
-      const myRooms = allRooms.filter(r => r.propertyId === id && !r.isDeleted);
-      setRoomsCount(myRooms.length);
+      const images = (() => { try { return typeof raw.images === 'string' ? JSON.parse(raw.images) : (raw.images || []); } catch { return []; } })();
+      const parsedAmenities = (() => { try { return typeof raw.amenities === 'string' ? JSON.parse(raw.amenities) : (raw.amenities || []); } catch { return []; } })();
+      // Normalize the backend payload into the local Property shape used by this view
+      setProperty({
+        ...raw,
+        photos: images,
+        amenities: parsedAmenities,
+        floorsCount: (raw.floors || []).length,
+        nightEntryTime: raw.nightEntryTime || '23:00',
+        noticePeriodDays: raw.noticePeriodDays || 30,
+        rentCycleDate: raw.rentCycleDate || 1,
+        defaultDeposit: raw.defaultDeposit || 0,
+        messEnabled: raw.messEnabled ?? false,
+        description: raw.description || raw.rules || ''
+      });
+
+      const rooms = (raw.floors || []).flatMap((f: any) => f.rooms || []);
+      setRoomsCount(rooms.length);
       setPricingRules(pricingApi.listByProperty(id) as any);
-      
-      const team = teamApi.listByOwner(user.id) as any;
-      const propertyManagers = team.filter((m: unknown) => m.user.assignedPropertyIds?.includes(id) && (m.profile.staffType === 'manager' || m.user.role === 'manager'));
+
+      const propertyManagers = (raw.staff || [])
+        .filter((s: any) => s.user?.role === 'MANAGER')
+        .map((s: any) => ({ user: s.user }));
       setManagers(propertyManagers);
-    }
-    setLoading(false);
-  }, [id, user?.id, router]);
+      setLoading(false);
+    }).catch(() => {
+      if (!isMounted) return;
+      router.replace('/owner/properties');
+      setLoading(false);
+    });
+    return () => { isMounted = false; };
+  }, [id, router]);
 
   if (loading) return <div className="p-6 motion-safe:animate-pulse">Loading property details...</div>;
   if (!property) return null; // handled by redirect
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (confirm('Are you sure you want to permanently delete this property? All associated rooms and data will be lost.')) {
-      db.update(STORAGE_KEYS.PROPERTIES, property.id, { isDeleted: true });
-      router.push('/owner/properties');
+      try {
+        // Hard delete in the real database via DELETE /api/v1/admin/properties/:id
+        await propertiesApi.deleteBackendProperty(property.id);
+        router.push('/owner/properties');
+      } catch (e: any) {
+        alert(e?.message || 'Failed to delete property.');
+      }
     }
   };
 

@@ -1,29 +1,34 @@
 import bcrypt from 'bcryptjs';
 import { prisma } from './db';
-import { UserRole, OwnerRequestStatus, PropertyType, RoomType, BedStatus, StayStatus, ComplaintStatus } from '@prisma/client';
+import { UserRole, OwnerRequestStatus, PropertyType, RoomType, BedStatus, StayStatus, ComplaintStatus, InvoiceStatus, PaymentMethod, PaymentStatus } from '@prisma/client';
 
 async function main() {
   console.log('🌱 Seeding database...');
 
-  // 1. Seed SuperAdmin User
-  const adminEmail = 'admin@smartpg.com';
-  let admin = await prisma.user.findUnique({ where: { email: adminEmail } });
+  // 1. Seed SuperAdmin Users
+  const adminEmails = [
+    { email: 'admin@smartpg.com', pass: 'SuperAdmin@123456' },
+    { email: 'superadmin@gmail.com', pass: 'Super@123' },
+  ];
 
-  if (!admin) {
-    const passwordHash = await bcrypt.hash('SuperAdmin@123456', 10);
-    admin = await prisma.user.create({
-      data: {
-        email: adminEmail,
-        phone: '9999999999',
-        fullName: 'Platform SuperAdmin',
-        passwordHash,
-        role: UserRole.SUPERADMIN,
-        mustChangePassword: false,
-      },
-    });
-    console.log(`✅ Created SuperAdmin user: ${adminEmail} (Password: SuperAdmin@123456)`);
-  } else {
-    console.log(`ℹ️ SuperAdmin already exists: ${adminEmail}`);
+  let admin: any = null;
+  for (const a of adminEmails) {
+    let existing = await prisma.user.findUnique({ where: { email: a.email } });
+    if (!existing) {
+      const passwordHash = await bcrypt.hash(a.pass, 10);
+      existing = await prisma.user.create({
+        data: {
+          email: a.email,
+          phone: a.email.includes('gmail') ? '9999999998' : '9999999999',
+          fullName: 'Platform SuperAdmin',
+          passwordHash,
+          role: UserRole.SUPERADMIN,
+          mustChangePassword: false,
+        },
+      });
+      console.log(`✅ Created SuperAdmin user: ${a.email} (Password: ${a.pass})`);
+    }
+    if (!admin) admin = existing;
   }
 
   // 2. Seed Platform Plans
@@ -116,40 +121,48 @@ async function main() {
     }
   }
 
-  // 5. Seed Demo Owner User
-  const ownerEmail = 'owner@smartpg.com';
-  let owner = await prisma.user.findUnique({ where: { email: ownerEmail } });
+  // 5. Seed Demo Owner Users
+  const ownerAccounts = [
+    { email: 'owner@smartpg.com', pass: 'Owner@123456', phone: '9876543201' },
+    { email: 'owner@gmail.com', pass: 'Owner3@123', phone: '9876543299' },
+  ];
 
-  if (!owner) {
-    const passwordHash = await bcrypt.hash('Owner@123456', 10);
-    owner = await prisma.user.create({
-      data: {
-        email: ownerEmail,
-        phone: '9876543201',
-        fullName: 'Rajesh Gupta',
-        passwordHash,
-        role: UserRole.OWNER,
-        mustChangePassword: false,
-      },
-    });
-    console.log(`✅ Created Owner user: ${ownerEmail} (Password: Owner@123456)`);
-
-    // Assign Subscription
-    if (starterPlan) {
-      await prisma.subscription.create({
+  let owner: any = null;
+  for (const o of ownerAccounts) {
+    let existing = await prisma.user.findUnique({ where: { email: o.email } });
+    if (!existing) {
+      const passwordHash = await bcrypt.hash(o.pass, 10);
+      existing = await prisma.user.create({
         data: {
-          ownerId: owner.id,
-          planId: starterPlan.id,
-          startDate: new Date(),
-          endDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-          isActive: true,
-          autoRenew: true,
-          paymentStatus: 'PAID',
+          email: o.email,
+          phone: o.phone,
+          fullName: 'Rajesh Gupta (PG Owner)',
+          passwordHash,
+          role: UserRole.OWNER,
+          mustChangePassword: false,
         },
       });
+      await prisma.user.update({
+        where: { id: existing.id },
+        data: { ownerId: owner ? owner.id : existing.id },
+      });
+      console.log(`✅ Created Owner user: ${o.email} (Password: ${o.pass})`);
+
+      if (starterPlan) {
+        await prisma.subscription.create({
+          data: {
+            ownerId: existing.id,
+            planId: starterPlan.id,
+            startDate: new Date(),
+            endDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+            isActive: true,
+            autoRenew: true,
+            paymentStatus: 'PAID',
+          },
+        });
+      }
     }
-  } else {
-    console.log(`ℹ️ Owner already exists: ${ownerEmail}`);
+    if (!owner) owner = existing;
   }
 
   // 6. Seed Property, Floors, Rooms & Beds for Owner
@@ -213,146 +226,357 @@ async function main() {
     console.log('✅ Created 2 Floors, 6 Rooms, and 12 Beds for Sunshine Luxury PG');
   }
 
-  // 7. Seed Demo Manager User
-  const managerEmail = 'manager@smartpg.com';
-  let manager = await prisma.user.findUnique({ where: { email: managerEmail } });
-  if (!manager) {
-    const passwordHash = await bcrypt.hash('Manager@123456', 10);
-    manager = await prisma.user.create({
-      data: {
-        ownerId: owner.id,
-        email: managerEmail,
-        phone: '9876543202',
-        fullName: 'Ramesh Kumar (PG Manager)',
-        passwordHash,
-        role: UserRole.MANAGER,
-        mustChangePassword: false,
-      },
-    });
+  // 7. Seed Demo Manager Users
+  const managerAccounts = [
+    { email: 'manager@smartpg.com', pass: 'Manager@123456', phone: '9876543202' },
+    { email: 'manager3@gmail.com', pass: 'Manager@123', phone: '9876543298' },
+    { email: 'cook3@gmail.com', pass: 'Cook@123', phone: '9876543297', role: UserRole.STAFF, name: 'Chef Suresh (Cook)' },
+  ];
 
-    if (property) {
-      await prisma.staffAssignment.create({
+  let manager: any = null;
+  for (const m of managerAccounts) {
+    let existing = await prisma.user.findUnique({ where: { email: m.email } });
+    if (!existing) {
+      const passwordHash = await bcrypt.hash(m.pass, 10);
+      existing = await prisma.user.create({
         data: {
-          userId: manager.id,
-          propertyId: property.id,
-          permissions: JSON.stringify(['all']),
+          ownerId: owner.id,
+          email: m.email,
+          phone: m.phone,
+          fullName: m.name || 'Ramesh Kumar (PG Manager)',
+          passwordHash,
+          role: m.role || UserRole.MANAGER,
+          mustChangePassword: false,
         },
       });
+      console.log(`✅ Created Manager/Staff user: ${m.email} (Password: ${m.pass})`);
     }
-    console.log(`✅ Created Manager user: ${managerEmail} (Password: Manager@123456)`);
+
+    if (property) {
+      const existingAssign = await prisma.staffAssignment.findFirst({
+        where: { userId: existing.id, propertyId: property.id },
+      });
+      if (!existingAssign) {
+        await prisma.staffAssignment.create({
+          data: {
+            userId: existing.id,
+            propertyId: property.id,
+            permissions: JSON.stringify(['all']),
+          },
+        });
+      }
+    }
+
+    if (!manager && (m.role || UserRole.MANAGER) === UserRole.MANAGER) manager = existing;
   }
 
   // 8. Seed Demo Parent & Student
-  const studentEmail = 'student@smartpg.com';
-  let student = await prisma.user.findUnique({ where: { email: studentEmail } });
-  if (!student && property) {
-    const parentPass = await bcrypt.hash('Parent@123456', 10);
-    const parentUser = await prisma.user.create({
-      data: {
-        ownerId: owner.id,
-        fullName: 'Surendra Verma (Father)',
-        email: 'parent@smartpg.com',
-        phone: '9876543203',
-        passwordHash: parentPass,
-        role: UserRole.PARENT,
-        mustChangePassword: false,
-      },
-    });
+  const studentAccounts = [
+    { email: 'student@smartpg.com', pass: 'Student@123456', phone: '9876543204', name: 'Rahul Verma', parentEmail: 'parent@smartpg.com', parentPass: 'Parent@123456' },
+    { email: 'student3@gmail.com', pass: 'Student@123', phone: '9876543296', name: 'Aarav Patel', parentEmail: 'parent3@gmail.com', parentPass: 'Parent@123' },
+  ];
 
-    const parentProfile = await prisma.parentProfile.create({
-      data: {
-        userId: parentUser.id,
-        relation: 'Father',
-        address: '24, Civil Lines, Kanpur, UP',
-      },
-    });
+  let student: any = null;
+  for (const st of studentAccounts) {
+    let existing = await prisma.user.findFirst({ where: { OR: [{ email: st.email }, { phone: st.phone }] } });
+    if (!existing && property) {
+      const parentEmail = st.parentEmail;
+      let parentUser = await prisma.user.findUnique({ where: { email: parentEmail } });
+      if (!parentUser) {
+        const parentPass = await bcrypt.hash(st.parentPass, 10);
+        parentUser = await prisma.user.create({
+          data: {
+            ownerId: owner.id,
+            fullName: `Parent of ${st.name}`,
+            email: parentEmail,
+            phone: `977654${st.phone.slice(-4)}`,
+            passwordHash: parentPass,
+            role: UserRole.PARENT,
+            mustChangePassword: false,
+          },
+        });
+      }
 
-    const studentPass = await bcrypt.hash('Student@123456', 10);
-    student = await prisma.user.create({
-      data: {
-        ownerId: owner.id,
-        fullName: 'Rahul Verma',
-        email: studentEmail,
-        phone: '9876543204',
-        passwordHash: studentPass,
-        role: UserRole.STUDENT,
-        mustChangePassword: false,
-      },
-    });
+      let parentProfile = await prisma.parentProfile.findUnique({ where: { userId: parentUser.id } });
+      if (!parentProfile) {
+        parentProfile = await prisma.parentProfile.create({
+          data: {
+            userId: parentUser.id,
+            relation: 'Father',
+            address: '24, Civil Lines, Kanpur, UP',
+          },
+        });
+      }
 
-    const tenantProfile = await prisma.tenantProfile.create({
-      data: {
-        userId: student.id,
-        emergencyContactName: 'Surendra Verma',
-        emergencyContactPhone: '9876543203',
-        permanentAddress: '24, Civil Lines, Kanpur, UP',
-        idProofType: 'AADHAAR',
-        idProofNumber: '1234-5678-9012',
-        collegeOrCompany: 'PES University, CSE Dept.',
-        parentProfileId: parentProfile.id,
-      },
-    });
-
-    // Find first vacant bed in Room 101
-    const bed = await prisma.bed.findFirst({
-      where: { room: { roomNumber: '101', floor: { propertyId: property.id } } },
-      include: { room: true },
-    });
-
-    if (bed) {
-      await prisma.tenantStay.create({
+      const studentPass = await bcrypt.hash(st.pass, 10);
+      existing = await prisma.user.create({
         data: {
           ownerId: owner.id,
-          propertyId: property.id,
-          tenantId: tenantProfile.id,
-          bedId: bed.id,
-          monthlyRent: 8500,
-          securityDeposit: 10000,
-          status: StayStatus.ACTIVE,
-          startDate: new Date(),
+          fullName: st.name,
+          email: st.email,
+          phone: st.phone,
+          passwordHash: studentPass,
+          role: UserRole.STUDENT,
+          mustChangePassword: false,
         },
       });
 
-      await prisma.bed.update({
-        where: { id: bed.id },
-        data: { status: BedStatus.OCCUPIED },
+      const tenantProfile = await prisma.tenantProfile.create({
+        data: {
+          userId: existing.id,
+          emergencyContactName: `Parent of ${st.name}`,
+          emergencyContactPhone: `987654${st.phone.slice(-4)}`,
+          permanentAddress: '24, Civil Lines, Kanpur, UP',
+          idProofType: 'AADHAAR',
+          idProofNumber: '1234-5678-9012',
+          collegeOrCompany: 'PES University, CSE Dept.',
+          parentProfileId: parentProfile.id,
+        },
       });
-      console.log(`✅ Onboarded Student: ${student.fullName} into Room 101, Bed ${bed.bedNumber}`);
+
+      // Find first vacant bed
+      const bed = await prisma.bed.findFirst({
+        where: { status: BedStatus.VACANT, room: { floor: { propertyId: property.id } } },
+        include: { room: true },
+      });
+
+      if (bed) {
+        await prisma.tenantStay.create({
+          data: {
+            ownerId: owner.id,
+            propertyId: property.id,
+            tenantId: tenantProfile.id,
+            bedId: bed.id,
+            monthlyRent: 8500,
+            securityDeposit: 10000,
+            status: StayStatus.ACTIVE,
+            startDate: new Date(),
+          },
+        });
+
+        await prisma.bed.update({
+          where: { id: bed.id },
+          data: { status: BedStatus.OCCUPIED },
+        });
+        console.log(`✅ Onboarded Student: ${st.name} into Bed ${bed.bedNumber}`);
+      }
+
+      // Seed sample gate logs (In and Out)
+      await prisma.gateLog.create({
+        data: {
+          propertyId: property.id,
+          userId: existing.id,
+          studentName: st.name,
+          roomNumber: bed?.room?.roomNumber || '101',
+          type: 'EXIT',
+          reason: 'College / Classes',
+          destination: 'PES University Campus',
+          isLate: false,
+          loggedBy: 'Main Gate QR',
+        },
+      });
+      await prisma.gateLog.create({
+        data: {
+          propertyId: property.id,
+          userId: existing.id,
+          studentName: st.name,
+          roomNumber: bed?.room?.roomNumber || '101',
+          type: 'ENTRY',
+          reason: 'Return from Evening Study',
+          destination: 'PES University Library',
+          isLate: false,
+          loggedBy: 'Main Gate QR',
+        },
+      });
+
+      // Seed sample complaint
+      await prisma.complaint.create({
+        data: {
+          ownerId: owner.id,
+          propertyId: property.id,
+          title: 'Geyser heating takes long time',
+          description: 'The hot water geyser in bathroom takes more than 30 mins to heat up.',
+          category: 'Plumbing / Electrical',
+          priority: 'MEDIUM',
+          status: ComplaintStatus.OPEN,
+        },
+      });
+
+      // Seed sample leave request
+      await prisma.leaveRequest.create({
+        data: {
+          studentId: existing.id,
+          propertyId: property.id,
+          startDate: new Date(Date.now() + 86400000),
+          endDate: new Date(Date.now() + 86400000 * 4),
+          reason: 'Family event in hometown',
+          status: 'APPROVED',
+        },
+      });
+
+      // Seed mess wallet & order
+      await prisma.messWallet.upsert({
+        where: { tenantId: existing.id },
+        update: { balance: 150000 },
+        create: { tenantId: existing.id, balance: 150000 },
+      });
+
+      console.log(`✅ Created Student user: ${st.email} (Password: ${st.pass})`);
     }
-
-    // Seed sample gate log
-    await prisma.gateLog.create({
-      data: {
-        propertyId: property.id,
-        userId: student.id,
-        studentName: student.fullName,
-        roomNumber: '101',
-        type: 'ENTRY',
-        reason: 'College / Classes',
-        destination: 'PES University Campus',
-        isLate: false,
-        loggedBy: 'Main Gate QR',
-      },
-    });
-
-    // Seed sample complaint
-    await prisma.complaint.create({
-      data: {
-        ownerId: owner.id,
-        propertyId: property.id,
-        title: 'Geyser heating takes long time',
-        description: 'The hot water geyser in Room 101 bathroom takes more than 30 mins to heat up.',
-        category: 'Plumbing / Electrical',
-        priority: 'MEDIUM',
-        status: ComplaintStatus.OPEN,
-      },
-    });
-
-    console.log(`✅ Created Student user: ${studentEmail} (Password: Student@123456)`);
-    console.log(`✅ Created Parent user: parent@smartpg.com (Password: Parent@123456)`);
+    if (!student) student = existing;
   }
 
-  // 9. Seed Support Ticket
+  // 9. Seed Food Menu, Stock Items & Staff Tasks
+  if (owner && property) {
+    const defaultMenu = {
+      Monday: { breakfast: 'Poha & Tea', lunch: 'Roti, Paneer Masala, Rice, Dal', dinner: 'Chapati, Mix Veg, Chawal, Kheer' },
+      Tuesday: { breakfast: 'Idli Sambar', lunch: 'Roti, Aloo Gobi, Rice, Dal Fry', dinner: 'Paratha, Egg Curry / Paneer, Rice' },
+      Wednesday: { breakfast: 'Aloo Paratha', lunch: 'Roti, Chana Masala, Rice, Curd', dinner: 'Veg Biryani, Raita, Gulab Jamun' },
+      Thursday: { breakfast: 'Upma & Coffee', lunch: 'Roti, Bhindi Masala, Rice, Dal', dinner: 'Roti, Dal Tadka, Jeera Rice' },
+      Friday: { breakfast: 'Puri Bhaji', lunch: 'Roti, Rajma, Rice, Salad', dinner: 'Roti, Paneer Butter Masala, Rice' },
+      Saturday: { breakfast: 'Bread Butter / Omelette', lunch: 'Roti, Kadhi Pakoda, Rice', dinner: 'Special South Indian Meal' },
+      Sunday: { breakfast: 'Masala Dosa', lunch: 'Veg / Chicken Dum Biryani', dinner: 'Roti, Choice Veg, Rice, Ice Cream' },
+    };
+
+    await prisma.foodMenu.upsert({
+      where: { ownerId: owner.id },
+      update: { weekMenuJson: JSON.stringify(defaultMenu) },
+      create: { ownerId: owner.id, weekMenuJson: JSON.stringify(defaultMenu) },
+    });
+    console.log('✅ Seeded Food Menu for Sunshine Luxury PG');
+
+    // Kitchen Stock Items
+    const stockItems = [
+      { itemName: 'Basmati Rice', category: 'Grocery', currentQuantity: 45, unit: 'kg', minThreshold: 10 },
+      { itemName: 'Wheat Flour (Atta)', category: 'Grocery', currentQuantity: 60, unit: 'kg', minThreshold: 15 },
+      { itemName: 'Cooking Sunflower Oil', category: 'Grocery', currentQuantity: 8, unit: 'liters', minThreshold: 10 },
+      { itemName: 'Paneer Fresh', category: 'Dairy', currentQuantity: 5, unit: 'kg', minThreshold: 3 },
+      { itemName: 'Fresh Milk', category: 'Dairy', currentQuantity: 20, unit: 'liters', minThreshold: 5 },
+    ];
+
+    for (const item of stockItems) {
+      await prisma.stockItem.create({
+        data: {
+          propertyId: property.id,
+          itemName: item.itemName,
+          category: item.category,
+          currentQuantity: item.currentQuantity,
+          unit: item.unit,
+          minThreshold: item.minThreshold,
+        },
+      });
+    }
+    console.log('✅ Seeded 5 Kitchen Inventory Stock Items');
+
+    // Staff Tasks
+    const staffTasks = [
+      { title: 'Prepare Dinner for 50 residents', description: 'Vegetarian and non-vegetarian meals', priority: 'HIGH', status: 'IN_PROGRESS' },
+      { title: 'Sanitize Dining Tables & Kitchen', description: 'Deep clean all cooking counters', priority: 'MEDIUM', status: 'COMPLETED' },
+      { title: 'Re-stock Rice and Cooking Oil', description: 'Purchase stock from local distributor', priority: 'HIGH', status: 'PENDING' },
+    ];
+
+    for (const t of staffTasks) {
+      await prisma.staffTask.create({
+        data: {
+          propertyId: property.id,
+          assignedTo: manager.id,
+          title: t.title,
+          description: t.description,
+          priority: t.priority,
+          status: t.status,
+        },
+      });
+    }
+    console.log('✅ Seeded 3 Staff Tasks');
+    // Seed Sample Invoices & Payments if TenantStays exist
+    const stay = await prisma.tenantStay.findFirst({
+      where: { propertyId: property.id },
+    });
+    if (stay) {
+      const existingInv = await prisma.invoice.findFirst({
+        where: { stayId: stay.id },
+      });
+      if (!existingInv) {
+        const invoice = await prisma.invoice.create({
+          data: {
+            ownerId: owner.id,
+            propertyId: property.id,
+            stayId: stay.id,
+            invoiceNumber: 'INV-DEMO-001',
+            billingMonth: '2026-09',
+            dueDate: new Date(Date.now() + 7 * 86400000),
+            totalAmount: 850000,
+            paidAmount: 850000,
+            status: InvoiceStatus.PAID,
+            items: {
+              create: [
+                { title: 'Monthly Rent - Sep 2026', amount: 850000 },
+              ],
+            },
+          },
+        });
+        await prisma.payment.create({
+          data: {
+            ownerId: owner.id,
+            invoiceId: invoice.id,
+            transactionRef: 'TXN-DEMO-001',
+            amount: 850000,
+            method: PaymentMethod.UPI,
+            status: PaymentStatus.COMPLETED,
+          },
+        });
+        console.log('✅ Seeded Demo Invoice & Payment');
+      }
+    }
+
+    // Seed Sample Expenses
+    const expenseCount = await prisma.expense.count({ where: { propertyId: property.id } });
+    if (expenseCount === 0) {
+      const sampleExpenses = [
+        { title: 'Electricity Bill Sep', category: 'Utilities', amount: 125000, expenseDate: new Date() },
+        { title: 'Wi-Fi Fiber Connection', category: 'Internet', amount: 35000, expenseDate: new Date() },
+        { title: 'Daily Grocery & Vegetables', category: 'Food', amount: 240000, expenseDate: new Date() },
+      ];
+      for (const exp of sampleExpenses) {
+        await prisma.expense.create({
+          data: {
+            ownerId: owner.id,
+            propertyId: property.id,
+            title: exp.title,
+            category: exp.category,
+            amount: exp.amount,
+            expenseDate: exp.expenseDate,
+          },
+        });
+      }
+      console.log('✅ Seeded 3 Sample Expenses');
+    }
+
+    // Seed Sample Enquiries
+    const enquiryCount = await prisma.enquiry.count({ where: { propertyId: property.id } });
+    if (enquiryCount === 0) {
+      const sampleEnquiries = [
+        { name: 'Karan Malhotra', phone: '9876500001', email: 'karan@example.com', roomType: RoomType.DOUBLE_SHARING, message: 'Looking for a double sharing room from Oct 1st.', isResolved: false },
+        { name: 'Rohan Sharma', phone: '9876500002', email: 'rohan@example.com', roomType: RoomType.SINGLE, message: 'Interested in single room near PES college.', isResolved: true },
+      ];
+      for (const enq of sampleEnquiries) {
+        await prisma.enquiry.create({
+          data: {
+            propertyId: property.id,
+            name: enq.name,
+            phone: enq.phone,
+            email: enq.email,
+            roomType: enq.roomType,
+            message: enq.message,
+            isResolved: enq.isResolved,
+          },
+        });
+      }
+      console.log('✅ Seeded 2 Sample Enquiries');
+    }
+  }
+
+  // 10. Seed Support Ticket
   const ticket = await prisma.supportTicket.findFirst();
   if (!ticket) {
     await prisma.supportTicket.create({
@@ -361,7 +585,7 @@ async function main() {
         description: 'We would like to configure automatic WhatsApp alerts to parents when residents scan the QR code.',
         priority: 'MEDIUM',
         status: 'OPEN',
-        createdBy: ownerEmail,
+        createdBy: owner?.email || 'owner@smartpg.com',
       },
     });
     console.log('✅ Seeded sample support ticket');

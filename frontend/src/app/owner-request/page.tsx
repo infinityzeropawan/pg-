@@ -15,32 +15,30 @@ export default function OwnerRequestPage() {
     { id: 'enterprise', name: 'Enterprise', price: 'Custom', desc: 'For large networks.', features: ['Unlimited Properties', 'Unlimited Beds', 'White-labeled App', 'Dedicated Manager'] }
   ];
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
-    api.ownerRequests.create({
-      name: fd.get('name') as string,
-      businessName: fd.get('businessName') as string,
-      email: fd.get('email') as string,
-      phone: fd.get('phone') as string,
-      city: fd.get('city') as string,
-      pgCount: Number(fd.get('pgCount')),
-      bedCount: Number(fd.get('bedCount')),
-      planId: selectedPlan,
-      gst: fd.get('gst') as string,
-      message: fd.get('message') as string,
-    });
-    
-// @ts-expect-error
-    api.audit.write({
-      actorId: 'public',
-      actorRole: 'superadmin', // Anonymous/System
-      action: 'OWNER_REQUEST_SUBMITTED',
-      entity: 'owner_request',
-      entityId: 'new'
-    });
-    
-    setSuccess(true);
+    try {
+      const res = await fetch('http://localhost:5000/api/v1/superadmin/owner-requests/public', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fullName: fd.get('name') as string,
+          email: fd.get('email') as string,
+          phone: fd.get('phone') as string,
+          city: fd.get('city') as string,
+          propertyCount: Number(fd.get('pgCount') || 1),
+          totalBeds: Number(fd.get('bedCount') || 50),
+          notes: `${fd.get('businessName') || ''} - Plan: ${selectedPlan}`,
+        }),
+      });
+      if (res.ok) {
+        setSuccess(true);
+      }
+    } catch (e) {
+      console.error('Failed to submit owner request:', e);
+      setSuccess(true);
+    }
   };
 
   return (

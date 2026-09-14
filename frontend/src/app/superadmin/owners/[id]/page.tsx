@@ -82,6 +82,38 @@ export default function Owner360Page() {
           </div>
         </div>
       )}
+
+      {/* Toggle Status Confirmation Modal */}
+      {actionsHook.toggleConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
+          <div className="bg-overlay border border rounded-[var(--radius-xl,16px)] p-7 max-w-sm w-full shadow-2xl motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95">
+            <h3 className="text-lg font-bold text-primary mb-2">
+              {actionsHook.toggleConfirm === 'SUSPEND' ? 'Suspend Owner' : 'Activate Owner'}
+            </h3>
+            <p className="text-sm text-secondary mb-5">
+              {actionsHook.toggleConfirm === 'SUSPEND'
+                ? 'This owner will lose access to their dashboard and all of their properties until reactivated.'
+                : 'This owner will regain access to their dashboard and properties immediately.'}
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={actionsHook.cancelToggleStatus}
+                className="px-4 py-2 text-sm font-medium text-primary bg-transparent border border hover:bg-card rounded-[var(--radius-md,8px)] motion-safe:transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={actionsHook.confirmToggleStatus}
+                className={`px-4 py-2 text-sm font-medium text-white rounded-[var(--radius-md,8px)] motion-safe:transition-colors shadow-sm ${actionsHook.toggleConfirm === 'SUSPEND' ? 'bg-danger hover:bg-red-600' : 'bg-primary hover:bg-primary-hover'}`}
+              >
+                {actionsHook.toggleConfirm === 'SUSPEND' ? 'Confirm Suspend' : 'Confirm Activate'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

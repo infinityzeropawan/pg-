@@ -15,6 +15,7 @@ import {
   listAuditLogs,
   getOwnerDetail,
   resetOwnerPassword,
+  addOwnerNote,
   getSettings,
   updateSettings,
   listFeatureFlags,
@@ -44,6 +45,7 @@ router.post('/owners', createOwner);
 router.get('/owners/:id', getOwnerDetail);
 router.patch('/owners/:id/status', toggleOwnerSuspension);
 router.post('/owners/:id/reset-password', resetOwnerPassword);
+router.post('/owners/:id/notes', addOwnerNote);
 
 router.get('/plans', listPlans);
 router.post('/plans', createPlan);

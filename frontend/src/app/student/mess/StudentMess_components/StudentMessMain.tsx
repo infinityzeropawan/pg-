@@ -19,10 +19,16 @@ export function StudentMessMain() {
   const [amount, setAmount] = useState('500');
   const [activeTab, setActiveTab] = useState<'today' | 'weekly'>('today');
 
-  const loadData = () => {
+  const loadData = async () => {
     if (profile) {
-      setWallet(studentOperationsApi.getWalletBalance((profile as any).studentId || (profile as any).userId));
-      setMenu(studentOperationsApi.getTodayMenu((profile as any).propertyId));
+      try {
+        const bal = await studentOperationsApi.getWalletBalance((profile as any).studentId || (profile as any).userId);
+        setWallet(bal || 0);
+        const m = await studentOperationsApi.getTodayMenu((profile as any).propertyId);
+        setMenu(m);
+      } catch (e) {
+        console.error('Failed to load mess data:', e);
+      }
     }
   };
 
@@ -30,22 +36,26 @@ export function StudentMessMain() {
     loadData();
   }, [profile]);
 
-  const handleRecharge = () => {
-    if (!session || !profile) return;
-    studentOperationsApi.rechargeWallet((profile as any).studentId || (profile as any).userId, parseInt(amount), (session as any).id);
-    toast.success('Wallet recharged! (Mock)');
-    setShowRecharge(false);
-    loadData();
+  const handleRecharge = async () => {
+    if (!profile) return;
+    try {
+      await studentOperationsApi.rechargeMessWallet(parseInt(amount));
+      toast.success('Mess wallet recharged!');
+      setShowRecharge(false);
+      loadData();
+    } catch (e: any) {
+      toast.error(e.message || 'Recharge failed');
+    }
   };
 
-  const handleOrder = (type: 'breakfast'|'lunch'|'dinner', cost: number) => {
-    if (!session || !profile) return;
+  const handleOrder = async (type: 'breakfast'|'lunch'|'dinner', cost: number) => {
+    if (!profile) return;
     try {
-      studentOperationsApi.orderMeal((profile as any).studentId || (profile as any).userId, (profile as any).propertyId, type, cost, (session as any).id);
+      await studentOperationsApi.orderMeal(type, (profile as any).propertyId);
       toast.success(`Ordered ${type}. ₹${cost} deducted from wallet.`);
       loadData();
     } catch (e: any) {
-      toast.error(e.message);
+      toast.error(e.message || 'Failed to order meal');
       setShowRecharge(true);
     }
   };

@@ -18,12 +18,12 @@ export function ManagerLoginMain() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      const user = api.login({ email, password, expectedRole: 'manager' });
+      const user = await api.login({ email, password, expectedRole: 'manager' });
       setSession(user);
       router.push(user.mustChangePassword ? '/manager/first-login' : '/manager/dashboard');
     } catch (err: any) {

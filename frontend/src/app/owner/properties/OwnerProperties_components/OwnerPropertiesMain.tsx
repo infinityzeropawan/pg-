@@ -8,26 +8,19 @@ import Link from 'next/link';
 import { propertiesApi } from '@/app/owner/owner_lib/owner_api/OwnerProperties';
 import { useState, useEffect } from 'react';
 
-import { useOwnerPropertyContext } from '@/app/owner/owner_components/OwnerPropertyContext';
-import { dashboardApi } from '@/app/owner/owner_lib/owner_api/OwnerDashboard';
-import { getSession } from '@/app/owner/owner_lib/owner_auth/OwnerSession';
-
-
-import type { Property } from '@/app/owner/owner_lib/owner_api/OwnerProperties';
-
 export function OwnerPropertiesMain() {
-  const user = typeof window !== 'undefined' ? getSession() : null;
-  const [localProps, setLocalProps] = useState<Property[]>([]);
+  const [localProps, setLocalProps] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (user) {
-      // Force a fresh fetch specifically for this page instead of relying on context
-      const allProps = propertiesApi.listByOwner(user.id);
-      setLocalProps(allProps);
-    }
-    setLoading(false);
-  }, [user?.id]);
+    let isMounted = true;
+    // Fetch from the real database via GET /api/v1/admin/properties
+    propertiesApi.fetchProperties()
+      .then((data) => { if (isMounted) setLocalProps(Array.isArray(data) ? data : []); })
+      .catch(() => { if (isMounted) setLocalProps([]); })
+      .finally(() => { if (isMounted) setLoading(false); });
+    return () => { isMounted = false; };
+  }, []);
 
   if (loading) {
     return <div className="p-6 motion-safe:animate-pulse">Loading properties...</div>;
@@ -67,10 +60,19 @@ export function OwnerPropertiesMain() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {localProps.map((property) => {
-            // Get stats for this property (using the dashboard API logic scoped to this property)
-            const stats = dashboardApi.getOwnerMetrics(user!.id, property.id);
-            const coverPhoto = property.photos?.[0] || 'https://images.unsplash.com/photo-1555854877-bab0e564b8d5?q=80&w=600&auto=format&fit=crop';
+          {localProps.map((property: any) => {
+            // Derive stats from the DB payload (floors -> rooms -> beds)
+            const beds = (property.floors || []).flatMap((f: any) => f.rooms || []).flatMap((r: any) => r.beds || []);
+            const occupied = beds.filter((b: any) => String(b.status) === 'OCCUPIED');
+            const stats = {
+              occupancyPercent: beds.length ? Math.round((occupied.length / beds.length) * 100) : 0,
+              occupiedBeds: occupied.length,
+              totalBeds: beds.length,
+              revenue: occupied.reduce((s: number, b: any) => s + (b.monthlyRent || 0) / 100, 0),
+            };
+            const images = (() => { try { return typeof property.images === 'string' ? JSON.parse(property.images) : (property.images || property.photos || []); } catch { return []; } })();
+            const coverPhoto = images[0] || 'https://images.unsplash.com/photo-1555854877-bab0e564b8d5?q=80&w=600&auto=format&fit=crop';
+            const managerName = (property.staff || []).filter((s: any) => s.user?.role === 'MANAGER').map((s: any) => s.user?.fullName || s.user?.name)[0] || 'Unassigned';
             
             return (
               <Link 
@@ -85,7 +87,7 @@ export function OwnerPropertiesMain() {
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent"></div>
                   
                   <div className="absolute top-3 left-3 bg-primary text-white text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide shadow-md">
-                    {property.type || 'coed'}
+                    {String(property.type || 'coed').replace(/_PG$/, '').toLowerCase()}
                   </div>
                   
                   <div className="absolute bottom-3 left-3 right-3">
@@ -117,7 +119,7 @@ export function OwnerPropertiesMain() {
                         <IndianRupee className="w-3 h-3" /> Revenue
                       </div>
                       <div className="text-sm font-bold text-success">
-                        ₹{stats.thisMonthCollection.toLocaleString()}
+                        ₹{Math.round(stats.revenue).toLocaleString()}
                       </div>
                     </div>
                     
@@ -135,7 +137,7 @@ export function OwnerPropertiesMain() {
                         <Users className="w-3 h-3" /> Manager
                       </div>
                       <div className="text-sm font-bold text-primary truncate">
-                        {property.contactName || 'Unassigned'}
+                        {managerName}
                       </div>
                     </div>
                   </div>

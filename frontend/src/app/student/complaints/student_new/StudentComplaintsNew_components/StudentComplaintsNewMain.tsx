@@ -20,18 +20,21 @@ export function StudentComplaintsNewMain() {
     priority: 'Medium'
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!profile) return;
-    studentOperationsApi.createComplaint({
-      propertyId: (profile as any).propertyId,
-      category: formData.category,
-      description: formData.description,
-      priority: formData.priority,
-      title: formData.title
-    }, (profile as any).id);
-    toast.success('Complaint raised successfully!');
-    router.push('/student/complaints');
+    try {
+      await studentOperationsApi.createComplaint({
+        category: formData.category,
+        description: formData.description,
+        priority: formData.priority,
+        title: formData.title
+      });
+      toast.success('Complaint raised successfully!');
+      router.push('/student/complaints');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to submit complaint');
+    }
   };
 
   return (

@@ -18,9 +18,13 @@ export function StudentComplaintsMain() {
   const [filterStatus, setFilterStatus] = useState('All');
 
   useEffect(() => {
+    let isMounted = true;
     if (profile) {
-      setComplaints(studentOperationsApi.getComplaints((profile as any).id || (profile as any).userId));
+      studentOperationsApi.getComplaints().then((data) => {
+        if (isMounted) setComplaints(Array.isArray(data) ? data : []);
+      });
     }
+    return () => { isMounted = false; };
   }, [profile]);
 
   if (!profile) return <div className="p-4 motion-safe:animate-pulse">Loading...</div>;

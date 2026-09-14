@@ -17,16 +17,20 @@ export function StudentNoticesMain() {
   const [filterPriority, setFilterPriority] = useState('All');
 
   useEffect(() => {
+    let isMounted = true;
     if (profile) {
-      // Assuming getNotices returns notices with priority or we mock it.
-      const fetched = studentOperationsApi.getNotices((profile as any).propertyId);
-      // Mocking priorities for UI if missing
-      const mapped = fetched.map((n: any, idx: number) => ({
-        ...n,
-        priority: n.priority || (idx % 3 === 0 ? 'High' : idx % 2 === 0 ? 'Medium' : 'Low')
-      }));
-      setNotices(mapped);
+      studentOperationsApi.getNotices().then((fetched) => {
+        if (isMounted) {
+          const list = Array.isArray(fetched) ? fetched : [];
+          const mapped = list.map((n: any, idx: number) => ({
+            ...n,
+            priority: n.priority || (idx % 3 === 0 ? 'High' : idx % 2 === 0 ? 'Medium' : 'Low')
+          }));
+          setNotices(mapped);
+        }
+      });
     }
+    return () => { isMounted = false; };
   }, [profile]);
 
   if (!profile) return <div className="p-4 motion-safe:animate-pulse">Loading...</div>;

@@ -207,10 +207,11 @@ export const dashboardApi = {
   },
 
   // Backend API async methods
-  fetchBackendMetrics: async () => {
+  fetchBackendMetrics: async (propertyId?: string) => {
     try {
       const { adminRequest } = await import('@/app/owner/owner_lib/owner_api/AdminClient');
-      const data = await adminRequest<any>('/dashboard');
+      const url = propertyId ? `/dashboard?propertyId=${encodeURIComponent(propertyId)}` : '/dashboard';
+      const data = await adminRequest<any>(url);
       return data;
     } catch {
       return null;

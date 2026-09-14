@@ -18,12 +18,12 @@ export function ParentLoginMain() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      const user = api.login({ email, password, expectedRole: 'parent' });
+      const user = await api.login({ email, password, expectedRole: 'PARENT' });
       setSession(user);
       router.push('/parent/dashboard');
     } catch (err: any) {

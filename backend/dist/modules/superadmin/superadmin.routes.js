@@ -17,6 +17,7 @@ router.post('/owners', superadmin_controller_1.createOwner);
 router.get('/owners/:id', superadmin_controller_1.getOwnerDetail);
 router.patch('/owners/:id/status', superadmin_controller_1.toggleOwnerSuspension);
 router.post('/owners/:id/reset-password', superadmin_controller_1.resetOwnerPassword);
+router.post('/owners/:id/notes', superadmin_controller_1.addOwnerNote);
 router.get('/plans', superadmin_controller_1.listPlans);
 router.post('/plans', superadmin_controller_1.createPlan);
 router.put('/plans/:id', superadmin_controller_1.updatePlan);

@@ -1,33 +1,41 @@
-import { db } from '@/lib/storage/db';
-import { STORAGE_KEYS } from '@/lib/storage/keys';
-import { createId } from '@/lib/utils/id';
+import { superadminRequest } from './SuperadminClient';
 
-import type { BaseEntity, Role } from '@/lib/types/models';
-export interface AuditLog extends BaseEntity {
-  [key: string]: unknown;
+export interface AuditLog {
+  id: string;
   actorId: string;
-  actorRole: Role;
   action: string;
-  entity: string;
+  entityType?: string;
   entityId: string;
-  meta?: unknown;
+  details?: string;
+  createdAt: string;
+  actor?: {
+    id: string;
+    fullName: string;
+    email: string;
+    role: string;
+  };
+  [key: string]: unknown;
 }
 
 export const auditApi = {
-  write(params: Omit<AuditLog, 'id' | 'createdAt' | 'updatedAt' | 'createdBy' | 'updatedBy' | 'isDeleted'>) {
-    const log = {
-      id: createId('log'),
-      ...params,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      createdBy: params.actorId as string,
-      updatedBy: params.actorId as string,
-      isDeleted: false
-    } as AuditLog;
-    return db.insert(STORAGE_KEYS.AUDIT_LOGS, log);
-  },
-  
-  getAll() {
-    return db.getAll<AuditLog>(STORAGE_KEYS.AUDIT_LOGS);
+  async getAll(): Promise<AuditLog[]> {
+    try {
+      const logs = await superadminRequest<any[]>('/audit-logs');
+      if (Array.isArray(logs)) {
+        return logs.map((l) => ({
+          id: l.id,
+          actorId: l.actorId,
+          action: l.action,
+          entityType: l.entityType,
+          entityId: l.entityId,
+          details: l.details || '',
+          createdAt: l.createdAt,
+          actor: l.actor,
+        }));
+      }
+    } catch (e) {
+      console.error('Failed to fetch audit logs from backend:', e);
+    }
+    return [];
   }
 };

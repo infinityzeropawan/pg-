@@ -1,248 +1,165 @@
-import { db } from '@/lib/storage/db';
-import { STORAGE_KEYS } from '@/lib/storage/keys';
-import { createId } from '@/lib/utils/id';
+/**
+ * RESPONSIBILITY: Backend-wired API client for Student Portal.
+ * All calls go to /api/v1/student/* REST endpoints.
+ * Includes legacy signatures for backward compatibility.
+ */
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+
+function getAuthHeaders(): HeadersInit {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
+async function apiGet<T = any>(path: string): Promise<T | null> {
+  try {
+    const res = await fetch(`${API_BASE}${path}`, { headers: getAuthHeaders() });
+    const json = await res.json();
+    if (json.success) return json.data as T;
+    return null;
+  } catch (e) {
+    console.error(`[StudentAPI] GET ${path} failed:`, e);
+    return null;
+  }
+}
+
+async function apiPost<T = any>(path: string, body?: any): Promise<T | null> {
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const json = await res.json();
+    if (json.success) return json.data as T;
+    throw new Error(json.message || 'Request failed');
+  } catch (e) {
+    console.error(`[StudentAPI] POST ${path} failed:`, e);
+    throw e;
+  }
+}
+
+async function apiPatch<T = any>(path: string, body?: any): Promise<T | null> {
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: 'PATCH',
+      headers: getAuthHeaders(),
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const json = await res.json();
+    if (json.success) return json.data as T;
+    throw new Error(json.message || 'Request failed');
+  } catch (e) {
+    console.error(`[StudentAPI] PATCH ${path} failed:`, e);
+    throw e;
+  }
+}
+
+async function apiPut<T = any>(path: string, body?: any): Promise<T | null> {
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const json = await res.json();
+    if (json.success) return json.data as T;
+    throw new Error(json.message || 'Request failed');
+  } catch (e) {
+    console.error(`[StudentAPI] PUT ${path} failed:`, e);
+    throw e;
+  }
+}
 
 export const studentOperationsApi = {
-  getProfile: (userId: string) => {
-    const students = db.getAll<any>(STORAGE_KEYS.STUDENTS);
-    const student = students.find(t => t.userId === userId && !t.isDeleted) || null;
-    if (!student) return null;
+  // ── Profile & Room ───────────────────────────────────────────
+  getProfile: async (_userId?: string) => apiGet('/api/v1/student/profile'),
+  updateProfile: async (data: any, _legacyData?: any, _userId?: string) => apiPut('/api/v1/student/profile', typeof data === 'string' ? _legacyData : data),
+  getRoomDetails: async () => apiGet('/api/v1/student/room'),
 
-    const property = db.getById<any>(STORAGE_KEYS.PROPERTIES, student.propertyId);
-    const bed = db.getById<any>(STORAGE_KEYS.BEDS, student.bedId);
-    const roomId = student.roomId || bed?.roomId;
-    const room = db.getById<any>(STORAGE_KEYS.ROOMS, roomId);
+  // ── Finance ─────────────────────────────────────────────────
+  getInvoices: async (_studentId?: string) => (await apiGet<any[]>('/api/v1/student/invoices')) ?? [],
+  getRentHistory: async () => apiGet('/api/v1/student/rent-history'),
+  payInvoice: async (invoiceId: string, _studentId?: string | number, paymentMethod = 'UPI', _userId?: string) =>
+    apiPost(`/api/v1/student/invoices/${invoiceId}/pay`, { paymentMethod: typeof paymentMethod === 'string' ? paymentMethod : 'UPI' }),
 
-    return {
-      ...student,
-      propertyName: property?.name || 'Unknown Property',
-      roomNumber: room?.number || 'Unknown Room',
-      bedCode: bed?.code || student.bedId
-    };
+  // ── Mess & Food ─────────────────────────────────────────────
+  getMessData: async () => apiGet('/api/v1/student/mess'),
+  getWalletBalance: async (_studentId?: string) => {
+    const data = await apiGet<any>('/api/v1/student/mess');
+    return data?.wallet?.balance ?? 0;
   },
-  
-  updateProfile: (studentId: string, data: unknown, userId: string) => {
-    db.update<any>(STORAGE_KEYS.STUDENTS, studentId, { ...(data as any), updatedAt: new Date().toISOString(), updatedBy: userId });
+  getTodayMenu: async (_propertyId?: string) => {
+    const data = await apiGet<any>('/api/v1/student/mess');
+    return data?.menu?.today ?? null;
   },
+  rechargeMessWallet: async (amount: number) => apiPost('/api/v1/student/mess/wallet/recharge', { amount }),
+  rechargeWallet: async (_studentId: string, amount: number, _userId?: string) =>
+    apiPost('/api/v1/student/mess/wallet/recharge', { amount }),
+  orderMeal: async (mealType: string, propertyId?: string, _type?: string, _cost?: number, _userId?: string) =>
+    apiPost('/api/v1/student/mess/order', { mealType, propertyId }),
+  rateMeal: async (orderId: string, rating: number, feedback?: string) =>
+    apiPatch(`/api/v1/student/mess/orders/${orderId}/rate`, { rating, feedback }),
 
-  // Finance
-  getInvoices: (studentId: string) => {
-    const invoices = db.getAll<any>(STORAGE_KEYS.INVOICES).filter(i => i.studentId === studentId && !i.isDeleted);
-    return invoices.sort((a,b) => new Date(b.dueDate).getTime() - new Date(a.dueDate).getTime());
-  },
-  payInvoice: (invoiceId: string, studentId: string, amount: number, userId: string) => {
-    // Record payment
-    db.insert(STORAGE_KEYS.PAYMENTS, {
-      id: createId('pay'), invoiceId, studentId, amount, method: 'OnlineMock', status: 'completed',
-      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), createdBy: userId, updatedBy: userId, isDeleted: false
-    });
-    // Mark invoice paid
-    db.update<any>(STORAGE_KEYS.INVOICES, invoiceId, { status: 'Paid', updatedAt: new Date().toISOString(), updatedBy: userId });
-    // Add PG score
-    const allStudents = db.getAll<any>(STORAGE_KEYS.STUDENTS);
-    const student = allStudents.find(t => t.id === studentId || t.userId === studentId);
-    if (student) {
-      db.update<any>(STORAGE_KEYS.STUDENTS, student.id, { 
-        pgScore: Math.min((student.pgScore || 80) + 10, 100), 
-        duesAmount: Math.max((student.duesAmount || 0) - amount, 0),
-        updatedAt: new Date().toISOString(), updatedBy: userId 
-      });
-    }
-  },
+  // ── Complaints ──────────────────────────────────────────────
+  getComplaints: async (_studentId?: string) => (await apiGet<any[]>('/api/v1/student/complaints')) ?? [],
+  createComplaint: async (data: any, _userId?: string) =>
+    apiPost('/api/v1/student/complaints', data),
 
-  // Wallet
-  getWalletBalance: (studentId: string) => {
-    const w = db.getAll<any>('spg_wallets').find(w => w.studentId === studentId);
-    return w ? w.balance : 0;
-  },
-  rechargeWallet: (studentId: string, amount: number, userId: string) => {
-    const w = db.getAll<any>('spg_wallets').find(w => w.studentId === studentId);
-    if (w) {
-      db.update<any>('spg_wallets', w.id, { balance: w.balance + amount, updatedAt: new Date().toISOString() });
-    } else {
-      db.insert('spg_wallets', { id: createId('wal'), studentId, balance: amount, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), createdBy: userId, updatedBy: userId, isDeleted: false });
-    }
-    db.insert('spg_wallet_txns', { id: createId('wtx'), studentId, type: 'credit', amount, description: 'Recharge', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), createdBy: userId, updatedBy: userId, isDeleted: false });
-  },
+  // ── Notices & Notice Period ─────────────────────────────────
+  getNotices: async (_propertyId?: string) => (await apiGet<any[]>('/api/v1/student/notices')) ?? [],
+  submitNoticePeriod: async (moveOutDate: string, reason: string) =>
+    apiPost('/api/v1/student/notice-period', { moveOutDate, reason }),
+  submitNotice: async (_studentId: string, _propertyId: string, moveOutDate: string, reason: string, _userId?: string) =>
+    apiPost('/api/v1/student/notice-period', { moveOutDate, reason }),
 
-  // Mess
-  getTodayMenu: (propertyId: string) => {
-    const menus = db.getAll<any>(STORAGE_KEYS.MENUS || 'spg_food_menus').filter(m => m.propertyId === propertyId && !m.isDeleted);
-    if (menus.length === 0) return null;
-    const menu = menus[0];
-    const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-    const today = days[new Date().getDay()];
-    const rawValue = menu[today!] || '';
-    try {
-      const parsed = JSON.parse(rawValue);
-      if (parsed.breakfast !== undefined) return parsed;
-    } catch (e: any) {}
-    return { breakfast: '', lunch: '', dinner: rawValue };
-  },
-  orderMeal: (studentId: string, propertyId: string, mealType: 'breakfast'|'lunch'|'dinner', cost: number, userId: string) => {
-    const bal = studentOperationsApi.getWalletBalance(studentId);
-    if (bal < cost) throw new Error('Insufficient wallet balance');
-    
-    // deduct
-    const w = db.getAll<any>('spg_wallets').find(w => w.studentId === studentId);
-    if (w) db.update<any>('spg_wallets', w.id, { balance: w.balance - cost, updatedAt: new Date().toISOString() });
-    
-    db.insert('spg_wallet_txns', { id: createId('wtx'), studentId, type: 'debit', amount: cost, description: `${mealType} deduction`, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), createdBy: userId, updatedBy: userId, isDeleted: false });
-    
-    // create order
-    db.insert('spg_meal_orders', {
-      id: createId('ord'), propertyId, studentId, mealType, status: 'Preparing', date: new Date().toISOString().split('T')[0],
-      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), createdBy: userId, updatedBy: userId, isDeleted: false
-    });
-  },
+  // ── Visitors ────────────────────────────────────────────────
+  getVisitors: async () => (await apiGet<any[]>('/api/v1/student/visitors')) ?? [],
+  addVisitor: async (data: { visitorName: string; visitorPhone: string; purpose: string }) =>
+    apiPost('/api/v1/student/visitors', data),
+  checkOutVisitor: async (visitorLogId: string) =>
+    apiPatch(`/api/v1/student/visitors/${visitorLogId}/checkout`),
 
-  // Complaints
-  getComplaints: (studentId: string) => {
-    const complaints = db.getAll<any>(STORAGE_KEYS.COMPLAINTS).filter(c => c.studentId === studentId && !c.isDeleted);
-    return complaints.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  },
-  createComplaint: (data: unknown, userId: string) => {
-    db.insert(STORAGE_KEYS.COMPLAINTS, {
-      id: createId('cmp'), ...(data as any), status: 'Open',
-      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), createdBy: userId, updatedBy: userId, isDeleted: false
-    });
-  },
+  // ── Leave Requests ──────────────────────────────────────────
+  getLeaves: async () => (await apiGet<any[]>('/api/v1/student/leaves')) ?? [],
+  requestLeave: async (data: { startDate: string; endDate: string; reason: string }) =>
+    apiPost('/api/v1/student/leaves', data),
+  cancelLeave: async (leaveId: string) =>
+    apiPatch(`/api/v1/student/leaves/${leaveId}/cancel`),
 
-  // Notices
-  getNotices: (propertyId: string) => {
-    const notices = db.getAll<any>('spg_broadcasts').filter(n => n.propertyId === propertyId && !n.isDeleted);
-    return notices.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  },
-  submitNotice: (studentId: string, propertyId: string, moveOutDate: string, reason: string, userId: string) => {
-    db.insert('spg_notices', {
-      id: createId('not'), propertyId, studentId, moveOutDate, reason, status: 'Pending',
-      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), createdBy: userId, updatedBy: userId, isDeleted: false
-    });
-    // Update student status
-    const student = db.getById<any>(STORAGE_KEYS.STUDENTS, studentId);
-    if (student) {
-      db.update<any>(STORAGE_KEYS.STUDENTS, studentId, { status: 'on_notice', updatedAt: new Date().toISOString(), updatedBy: userId });
-    }
-  },
+  // ── SOS / Safety ────────────────────────────────────────────
+  triggerSOS: async (coords?: { latitude?: number; longitude?: number }) =>
+    apiPost('/api/v1/student/sos', coords),
+  triggerSos: async (_studentId?: string, _propertyId?: string, _userId?: string) =>
+    apiPost('/api/v1/student/sos'),
+  resolveSOS: async (sosId: string) =>
+    apiPatch(`/api/v1/student/sos/${sosId}/resolve`),
+  getSOSHistory: async () => (await apiGet<any[]>('/api/v1/student/sos/history')) ?? [],
 
-  // SOS
-  triggerSos: (studentId: string, propertyId: string, userId: string) => {
-    db.insert('spg_sos', {
-      id: createId('sos'), propertyId, studentId, status: 'active', lat: '28.6139', lng: '77.2090',
-      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), createdBy: userId, updatedBy: userId, isDeleted: false
-    });
-  },
+  // ── Gate Attendance ─────────────────────────────────────────
+  recordGateAttendance: async (data: { type: string; reason?: string; destination?: string; expectedReturnTime?: string }) =>
+    apiPost('/api/v1/student/gate-attendance', data),
+  scanGateAttendance: async (params: { type: string; reason?: string; destination?: string; expectedReturnTime?: string }) =>
+    apiPost('/api/v1/student/gate-attendance', params),
+  getGateLogs: async (_studentId?: string) => (await apiGet<any[]>('/api/v1/student/gate-attendance')) ?? [],
 
-  // Gate Attendance & QR Scanning
-  scanGateAttendance: (params: {
-    studentId: string;
-    propertyId: string;
-    type: 'entry' | 'exit';
-    reason: string;
-    destination?: string;
-    expectedReturnTime?: string;
-    userId: string;
-  }) => {
-    const { studentId, propertyId, type, reason, destination, expectedReturnTime, userId } = params;
-    
-    // Calculate if entry is late (curfew after 10 PM or before 5 AM)
-    const now = new Date();
-    const currentHour = now.getHours();
-    const isLate = type === 'entry' && (currentHour >= 22 || currentHour < 5);
+  // ── Attendance Records ──────────────────────────────────────
+  getAttendance: async (month?: string) => apiGet(`/api/v1/student/attendance${month ? `?month=${month}` : ''}`),
 
-    const student = db.getById<any>(STORAGE_KEYS.STUDENTS, studentId);
-    const users = db.getAll<any>(STORAGE_KEYS.USERS);
-    const userObj = users.find(u => u.id === (student?.userId || userId));
-    const rooms = db.getAll<any>(STORAGE_KEYS.ROOMS);
-    const room = rooms.find(r => r.id === student?.roomId);
+  // ── Documents ───────────────────────────────────────────────
+  getDocuments: async () => apiGet('/api/v1/student/documents'),
 
-    const log = {
-      id: createId('gat'),
-      propertyId,
-      studentId,
-      studentName: userObj?.name || 'Student',
-      roomNumber: room?.number || student?.roomNumber || '',
-      type,
-      reason,
-      destination: destination || '',
-      expectedReturnTime: expectedReturnTime || '',
-      isLate,
-      timestamp: now.toISOString(),
-      createdAt: now.toISOString(),
-      updatedAt: now.toISOString(),
-      createdBy: userId,
-      updatedBy: userId,
-      isDeleted: false
-    };
+  // ── Notifications ───────────────────────────────────────────
+  getNotifications: async () => (await apiGet<any[]>('/api/v1/student/notifications')) ?? [],
+  markNotificationRead: async (id: string) => apiPatch(`/api/v1/student/notifications/${id}/read`),
 
-    db.insert(STORAGE_KEYS.GATE_LOGS, log);
+  // ── Activity History ────────────────────────────────────────
+  getHistory: async () => (await apiGet<any[]>('/api/v1/student/history')) ?? [],
 
-    // Update today's attendance roster
-    const today = now.toISOString().split('T')[0];
-    const existingAtt = db.getAll<any>('spg_student_attendance').find(a => a.studentId === studentId && a.date === today && !a.isDeleted);
-    if (existingAtt) {
-      db.update<any>('spg_student_attendance', existingAtt.id, {
-        status: 'Present',
-        lastGateActivity: type,
-        lastSeenTime: now.toISOString(),
-        updatedAt: now.toISOString(),
-        updatedBy: userId
-      });
-    } else {
-      db.insert('spg_student_attendance', {
-        id: createId('att'),
-        studentId,
-        propertyId,
-        date: today,
-        status: 'Present',
-        lastGateActivity: type,
-        lastSeenTime: now.toISOString(),
-        createdAt: now.toISOString(),
-        updatedAt: now.toISOString(),
-        createdBy: userId,
-        updatedBy: userId,
-        isDeleted: false
-      });
-    }
-
-    return log;
-  },
-
-  getGateLogs: (studentId: string) => {
-    let logs = db.getAll<any>(STORAGE_KEYS.GATE_LOGS).filter(g => g.studentId === studentId && !g.isDeleted);
-    if (logs.length === 0) {
-      const now = Date.now();
-      db.insert(STORAGE_KEYS.GATE_LOGS, {
-        id: createId('gat'),
-        propertyId: 'prop_1',
-        studentId,
-        studentName: 'Resident',
-        type: 'entry',
-        reason: 'College / Classes',
-        destination: 'Campus Block A',
-        isLate: false,
-        timestamp: new Date(now - 3600000 * 2).toISOString(),
-        createdAt: new Date(now - 3600000 * 2).toISOString(),
-        updatedAt: new Date(now - 3600000 * 2).toISOString(),
-        isDeleted: false
-      });
-      db.insert(STORAGE_KEYS.GATE_LOGS, {
-        id: createId('gat'),
-        propertyId: 'prop_1',
-        studentId,
-        studentName: 'Resident',
-        type: 'exit',
-        reason: 'College / Classes',
-        destination: 'Campus Block A',
-        expectedReturnTime: '06:00 PM',
-        isLate: false,
-        timestamp: new Date(now - 3600000 * 8).toISOString(),
-        createdAt: new Date(now - 3600000 * 8).toISOString(),
-        updatedAt: new Date(now - 3600000 * 8).toISOString(),
-        isDeleted: false
-      });
-      logs = db.getAll<any>(STORAGE_KEYS.GATE_LOGS).filter(g => g.studentId === studentId && !g.isDeleted);
-    }
-    return logs.sort((a,b) => new Date(b.timestamp || b.createdAt).getTime() - new Date(a.timestamp || a.createdAt).getTime());
-  }
+  // ── Feedback & Support ──────────────────────────────────────
+  submitFeedback: async (data: { title: string; description: string; priority?: string }) =>
+    apiPost('/api/v1/student/feedback', data),
 };

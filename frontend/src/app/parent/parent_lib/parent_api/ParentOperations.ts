@@ -1,93 +1,113 @@
-import { db } from '@/lib/storage/db';
-import { STORAGE_KEYS } from '@/lib/storage/keys';
+/**
+ * RESPONSIBILITY: Backend-wired API client for the Parent Portal.
+ * All calls go to /api/v1/parent/* REST endpoints.
+ * Falls back gracefully when the backend is unavailable.
+ */
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+
+function getAuthHeaders(): HeadersInit {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
+async function apiGet<T = any>(path: string): Promise<T | null> {
+  try {
+    const res = await fetch(`${API_BASE}${path}`, { headers: getAuthHeaders() });
+    const json = await res.json();
+    if (json.success) return json.data as T;
+    return null;
+  } catch (e) {
+    console.error(`[ParentAPI] GET ${path} failed:`, e);
+    return null;
+  }
+}
+
+async function apiPost<T = any>(path: string, body?: any): Promise<T | null> {
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const json = await res.json();
+    if (json.success) return json.data as T;
+    throw new Error(json.message || 'Request failed');
+  } catch (e) {
+    console.error(`[ParentAPI] POST ${path} failed:`, e);
+    throw e;
+  }
+}
 
 export const parentOperationsApi = {
-  getLinkedChild: (parentId: string) => {
-    const parents = db.getAll<any>(STORAGE_KEYS.PARENTS);
-    const p = parents.find(x => x.userId === parentId);
-    if (!p) return null;
+  // ── Dashboard ───────────────────────────────────────────────
+  getDashboard: async () => apiGet('/api/v1/parent/dashboard'),
 
-    const students = db.getAll<any>(STORAGE_KEYS.STUDENTS);
-    let child = students.find(t => t.parentEmail === p.email || t.parentId === p.id);
-    if (!child) {
-      child = students[0];
-    }
-    
-    if (child) {
-      const users = db.getAll<any>(STORAGE_KEYS.USERS);
-      const user = users.find(u => u.id === child.userId);
-      const rooms = db.getAll<any>(STORAGE_KEYS.ROOMS);
-      const room = rooms.find(r => r.id === child.roomId);
-      const properties = db.getAll<any>(STORAGE_KEYS.PROPERTIES);
-      const prop = properties.find(pr => pr.id === child.propertyId);
-
-      return {
-        ...child,
-        name: child.name || user?.name || 'Student',
-        propertyName: prop?.name || 'Sunshine PG',
-        roomNumber: room?.number || child.roomNumber || '101'
-      };
-    }
-    return null;
-  },
-
-  getChildGateLogs: (studentId: string) => {
-    const logs = db.getAll<any>(STORAGE_KEYS.GATE_LOGS).filter(l => l.studentId === studentId && !l.isDeleted);
-    return logs.sort((a,b) => new Date((b.timestamp || b.createdAt) as string).getTime() - new Date((a.timestamp || a.createdAt) as string).getTime());
-  },
-
-  getChildAlerts: (studentId: string) => {
-    const alerts: any[] = [];
-    
-    // Check SOS
-    const sos = db.getAll<any>('spg_sos').filter(s => s.studentId === studentId && s.status === 'active' && !s.isDeleted);
-    sos.forEach(s => alerts.push({ id: s.id, type: 'sos', title: '🚨 Emergency SOS Triggered', date: s.createdAt, severity: 'high' }));
-
-    // Check Late Entries
-    const late = db.getAll<any>(STORAGE_KEYS.GATE_LOGS).filter(l => l.studentId === studentId && l.isLate && !l.isDeleted);
-    late.forEach(l => alerts.push({ 
-      id: l.id, 
-      type: 'late', 
-      title: `⚠️ Late Curfew Entry (${l.reason || 'Returned late'})`, 
-      date: l.timestamp || l.createdAt, 
-      severity: 'medium' 
-    }));
-
-    // Check Recent Gate Movements (Last 3)
-    const recentLogs = db.getAll<any>(STORAGE_KEYS.GATE_LOGS)
-      .filter(l => l.studentId === studentId && !l.isDeleted)
-      .sort((a,b) => new Date((b.timestamp || b.createdAt) as string).getTime() - new Date((a.timestamp || a.createdAt) as string).getTime())
-      .slice(0, 3);
-
-    recentLogs.forEach(l => {
-      alerts.push({
-        id: `gate_${l.id}`,
-        type: 'gate',
-        title: l.type === 'exit' 
-          ? `🔴 Checked Out for ${l.reason || 'Outing'}${l.expectedReturnTime ? ` (Return by ${l.expectedReturnTime})` : ''}`
-          : `🟢 Checked In at PG (${l.reason || 'Returned'})`,
-        date: l.timestamp || l.createdAt,
-        severity: 'info'
+  // ── Profile ─────────────────────────────────────────────────
+  getProfile: async () => apiGet('/api/v1/parent/profile'),
+  updateProfile: async (data: { relation?: string; address?: string }) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/parent/profile`, {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(data),
       });
-    });
-
-    // Check Dues
-    const invoices = db.getAll<any>(STORAGE_KEYS.INVOICES).filter(i => i.studentId === studentId && i.status !== 'Paid' && !i.isDeleted);
-    invoices.forEach(i => alerts.push({ id: i.id, type: 'due', title: `Rent Due: ₹${i.amount}`, date: i.dueDate, severity: 'low' }));
-
-    return alerts.sort((a,b) => new Date((b.date || b.createdAt) as string).getTime() - new Date((a.date || a.createdAt) as string).getTime());
+      const json = await res.json();
+      return json.success ? json.data : null;
+    } catch (e) {
+      console.error('[ParentAPI] PUT /profile failed:', e);
+      return null;
+    }
   },
 
-  getChildInvoices: (studentId: string) => {
-    return db.getAll<any>(STORAGE_KEYS.INVOICES).filter(i => i.studentId === studentId && !i.isDeleted).sort((a,b) => new Date(b.dueDate).getTime() - new Date(a.dueDate).getTime());
+  // ── Child's Gate Logs / Attendance ──────────────────────────
+  getGateLogs: async () => apiGet('/api/v1/parent/gate-logs') ?? [],
+  
+  // Legacy alias used in old ParentDashboardMain
+  getChildGateLogs: async (_studentId?: string) =>
+    (await apiGet<any[]>('/api/v1/parent/gate-logs')) ?? [],
+
+  // ── Finance ─────────────────────────────────────────────────
+  getInvoices: async () => apiGet('/api/v1/parent/invoices') ?? [],
+  
+  // Legacy alias
+  getChildInvoices: async (_studentId?: string) =>
+    (await apiGet<any[]>('/api/v1/parent/invoices')) ?? [],
+
+  payInvoice: async (invoiceId: string, paymentMethod = 'UPI') =>
+    apiPost(`/api/v1/parent/invoices/${invoiceId}/pay`, { paymentMethod }),
+
+  // ── Complaints ──────────────────────────────────────────────
+  getComplaints: async () => apiGet('/api/v1/parent/complaints') ?? [],
+  
+  // Legacy alias
+  getChildComplaints: async (_studentId?: string) =>
+    (await apiGet<any[]>('/api/v1/parent/complaints')) ?? [],
+
+  // ── Safety Alerts ───────────────────────────────────────────
+  getAlerts: async () => apiGet('/api/v1/parent/alerts') ?? [],
+  
+  // Legacy alias used in old alerts components
+  getChildAlerts: async (_studentId?: string) =>
+    (await apiGet<any[]>('/api/v1/parent/alerts')) ?? [],
+
+  // ── Notifications ───────────────────────────────────────────
+  getNotifications: async () => apiGet('/api/v1/parent/notifications') ?? [],
+
+  // ── Linked Child Info (from dashboard) ──────────────────────
+  // This is not a separate endpoint — we pull from /dashboard
+  getLinkedChild: async (_parentId?: string) => {
+    const data = await apiGet<any>('/api/v1/parent/dashboard');
+    return data?.student ?? null;
   },
 
-  getChildComplaints: (studentId: string) => {
-    return db.getAll<any>(STORAGE_KEYS.COMPLAINTS).filter(c => c.studentId === studentId && !c.isDeleted).sort((a,b) => new Date((b as any).createdAt).getTime() - new Date((a as any).createdAt).getTime());
+  // Legacy: wallet balance — Parents don't have a direct wallet endpoint,
+  // but we expose the mess wallet balance from the dashboard student data.
+  getWalletBalance: async (_studentId?: string) => {
+    const data = await apiGet<any>('/api/v1/parent/dashboard');
+    return data?.messWalletBalance ?? 0;
   },
-
-  getWalletBalance: (studentId: string) => {
-    const w = db.getAll<any>('spg_wallets').find(w => w.studentId === studentId);
-    return w ? w.balance : 0;
-  }
 };

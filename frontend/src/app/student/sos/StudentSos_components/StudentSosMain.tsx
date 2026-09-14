@@ -16,14 +16,17 @@ export function StudentSosMain() {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
 
-  const handleSos = () => {
-    if (!profile || !session) return;
+  const handleSos = async () => {
+    if (!profile) return;
     setLoading(true);
-    setTimeout(() => {
-      studentOperationsApi.triggerSos((profile as any).studentId || (profile as any).userId, (profile as any).propertyId, session.id);
+    try {
+      await studentOperationsApi.triggerSOS();
       setSuccess(true);
+    } catch (e) {
+      console.error('SOS trigger failed:', e);
+    } finally {
       setLoading(false);
-    }, 1000);
+    }
   };
 
   if (!profile) return <div className="p-4">Loading...</div>;

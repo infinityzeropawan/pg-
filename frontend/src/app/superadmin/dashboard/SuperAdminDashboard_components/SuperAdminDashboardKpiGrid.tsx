@@ -10,7 +10,7 @@ export const SuperAdminDashboardKpiGrid: React.FC<SuperAdminDashboardKpiGridProp
     { label: 'Pending Requests', value: data.pendingRequestsCount, icon: Clock, iconColor: '#F5A623', iconBg: '#FEF6E8', borderColor: '#F5A623', trend: '-2%', trendUp: false },
     { label: 'Active Properties', value: data.activePropertiesCount, icon: Building2, iconColor: '#27AE60', iconBg: '#E8F8F0', borderColor: '#27AE60', trend: '+5%', trendUp: true },
     { label: 'Total Students', value: data.totalStudentsCount, icon: UserCircle, iconColor: '#8E44AD', iconBg: '#F4EAF7', borderColor: '#8E44AD', trend: '+18%', trendUp: true },
-    { label: 'MRR (Dummy)', value: `₹${(data.mrr / 1000).toFixed(1)}k`, icon: CreditCard, iconColor: '#27AE60', iconBg: '#E8F8F0', borderColor: '#27AE60', trend: '+8.4%', trendUp: true },
+    { label: 'MRR (Monthly Revenue)', value: `₹${Number(data.mrr || 0).toLocaleString('en-IN')}`, icon: CreditCard, iconColor: '#27AE60', iconBg: '#E8F8F0', borderColor: '#27AE60', trend: '+8.4%', trendUp: true },
     { label: 'Network Occupancy', value: `${data.occupancyPercentage}%`, icon: Activity, iconColor: '#2D7D9A', iconBg: '#E6F0F4', borderColor: '#2D7D9A', trend: '+2.1%', trendUp: true },
     { label: 'Open Tickets', value: data.openTicketsCount, icon: Ticket, iconColor: '#E74C3C', iconBg: '#FDEDED', borderColor: '#E74C3C', trend: '-14%', trendUp: false },
     { label: 'Expiring Plans', value: data.expiringPlansCount, icon: Clock, iconColor: '#F5A623', iconBg: '#FEF6E8', borderColor: '#F5A623', trend: 'Next 30d', trendUp: null },

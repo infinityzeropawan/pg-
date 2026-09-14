@@ -48,18 +48,19 @@ export function OwnerFoodMain() {
 
     if (selectedPropertyId && selectedPropertyId !== 'all') {
       setLoading(true);
-      const data = foodApi.getByProperty(selectedPropertyId);
-      if (data) {
-        setMenu(data);
-        setHasMenu(true);
-        setIsEditing(false);
-      } else {
-        setMenu(defaultMenu);
-        setHasMenu(false);
-        setIsEditing(false); // Show empty state first
-      }
-      setLoading(false);
-      setSuccessMsg('');
+      foodApi.getByPropertyAsync(selectedPropertyId).then((data) => {
+        if (data) {
+          setMenu(data);
+          setHasMenu(true);
+          setIsEditing(false);
+        } else {
+          setMenu(defaultMenu);
+          setHasMenu(false);
+          setIsEditing(false);
+        }
+        setLoading(false);
+        setSuccessMsg('');
+      });
     }
   }, [selectedPropertyId, properties.length, user?.id, setSelectedPropertyId]);
 
@@ -78,16 +79,16 @@ export function OwnerFoodMain() {
     });
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!selectedPropertyId || selectedPropertyId === 'all') return;
     setSaving(true);
     try {
-      foodApi.save(selectedPropertyId, menu);
+      await foodApi.saveAsync(selectedPropertyId, menu);
       setSuccessMsg('Food Menu saved successfully!');
       setHasMenu(true);
       setTimeout(() => {
         setSuccessMsg('');
-        setIsEditing(false); // Switch to read-only view after save
+        setIsEditing(false);
       }, 1500);
     } catch (err: any) {
       console.error(err);

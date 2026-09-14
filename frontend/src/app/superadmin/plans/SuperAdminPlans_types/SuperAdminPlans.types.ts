@@ -15,7 +15,7 @@ export interface SuperAdminPlan {
 
 // Component Props Interfaces
 export interface SuperAdminPlansHeaderProps {
-  // Empty for now, but ready for future expansion like 'Create Plan'
+  onCreateClick?: () => void;
 }
 
 export interface SuperAdminPlansCardProps {

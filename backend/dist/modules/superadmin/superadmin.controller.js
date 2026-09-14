@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.createBroadcast = exports.updateTicketStatus = exports.createTicket = exports.listTickets = exports.updateFeatureFlag = exports.listFeatureFlags = exports.updateSettings = exports.getSettings = exports.resetOwnerPassword = exports.getOwnerDetail = exports.listAuditLogs = exports.updatePlan = exports.createPlan = exports.listPlans = exports.toggleOwnerSuspension = exports.createOwner = exports.listOwners = exports.updateOwnerRequestStatus = exports.createOwnerRequest = exports.listOwnerRequests = exports.getAnalytics = exports.getDashboardStats = void 0;
+exports.addOwnerNote = exports.createBroadcast = exports.updateTicketStatus = exports.createTicket = exports.listTickets = exports.updateFeatureFlag = exports.listFeatureFlags = exports.updateSettings = exports.getSettings = exports.resetOwnerPassword = exports.getOwnerDetail = exports.listAuditLogs = exports.updatePlan = exports.createPlan = exports.listPlans = exports.toggleOwnerSuspension = exports.createOwner = exports.listOwners = exports.updateOwnerRequestStatus = exports.createOwnerRequest = exports.listOwnerRequests = exports.getAnalytics = exports.getDashboardStats = void 0;
 const superadmin_service_1 = require("./superadmin.service");
 const response_1 = require("../../utils/response");
 const getDashboardStats = async (req, res) => {
@@ -228,3 +228,16 @@ const createBroadcast = async (req, res) => {
     }
 };
 exports.createBroadcast = createBroadcast;
+const addOwnerNote = async (req, res) => {
+    try {
+        const id = req.params.id;
+        const { note } = req.body;
+        const adminId = req.user?.userId || '';
+        const audit = await superadmin_service_1.SuperadminService.addOwnerNote(id, note, adminId);
+        return (0, response_1.sendSuccess)(res, 'Owner note saved successfully', audit, 201);
+    }
+    catch (error) {
+        return (0, response_1.sendError)(res, error.message || 'Failed to add owner note', 400, error);
+    }
+};
+exports.addOwnerNote = addOwnerNote;

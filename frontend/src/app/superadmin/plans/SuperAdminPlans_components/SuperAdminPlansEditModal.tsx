@@ -22,6 +22,16 @@ export const SuperAdminPlansEditModal: React.FC<SuperAdminPlansEditModalProps> =
         
         <form onSubmit={onSave} className="space-y-4">
           <div>
+            <label className="block text-xs font-medium text-secondary mb-1">Plan Name</label>
+            <input 
+              type="text" 
+              required 
+              value={editPlan.name} 
+              onChange={e => setEditPlan({ ...editPlan, name: e.target.value })} 
+              className="w-full bg-input border border text-primary p-2.5 rounded-[var(--radius-md,8px)] focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none motion-safe:transition-colors" 
+            />
+          </div>
+          <div>
             <label className="block text-xs font-medium text-secondary mb-1">Monthly Price (₹)</label>
             <input 
               type="number" 

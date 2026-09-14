@@ -2,7 +2,7 @@ import { Response } from 'express';
 import { AuthRequest } from '../../middleware/auth.middleware';
 import { AdminService } from './admin.service';
 import { sendSuccess, sendError } from '../../utils/response';
-import { PropertyType, RoomType, BedStatus, ComplaintStatus } from '@prisma/client';
+import { PropertyType, RoomType, BedStatus, ComplaintStatus, UserRole, ComplaintPriority } from '@prisma/client';
 
 export const getDashboardStats = async (req: AuthRequest, res: Response) => {
   try {
@@ -53,16 +53,28 @@ export const createProperty = async (req: AuthRequest, res: Response) => {
     const ownerId = req.user?.ownerId || req.user?.userId;
     if (!ownerId) return sendError(res, 'Owner ID required', 400);
 
-    const { name, type, address, city, state, pincode, contactPhone, contactEmail, amenities, rules, floorsCount } = req.body;
+    const { name, type, address, city, state, pincode, contactPhone, contactEmail, amenities, rules, floorsCount, defaultDeposit, bedRent, generateRooms, singleRoomsCount, doubleRoomsCount, tripleRoomsCount } = req.body;
 
     if (!name || !address || !city) {
       return sendError(res, 'Name, address, and city are required', 400);
     }
 
-    const property = await AdminService.createProperty({
-      ownerId,
+    // Normalize UI-friendly type labels to the Prisma PropertyType enum
+    const typeMap: Record<string, PropertyType> = {
+      boys: PropertyType.BOYS_PG,
+      boys_pg: PropertyType.BOYS_PG,
+      girls: PropertyType.GIRLS_PG,
+      girls_pg: PropertyType.GIRLS_PG,
+      coed: PropertyType.COED_PG,
+      coed_pg: PropertyType.COED_PG,
+      hostel: PropertyType.HOSTEL,
+      coliving: PropertyType.COLIVING,
+    };
+    const normalizedType = (type ? typeMap[String(type).toLowerCase()] : undefined) || PropertyType.BOYS_PG;
+
+    const property = await AdminService.createProperty(ownerId, {
       name,
-      type: (type as PropertyType) || PropertyType.BOYS_PG,
+      type: normalizedType,
       address,
       city,
       state,
@@ -72,6 +84,12 @@ export const createProperty = async (req: AuthRequest, res: Response) => {
       amenities,
       rules,
       floorsCount: Number(floorsCount) || 2,
+      defaultDeposit: Number(defaultDeposit) || 0,
+      bedRent: Number(bedRent) || 0,
+      generateRooms: Boolean(generateRooms),
+      singleRoomsCount: Number(singleRoomsCount) || 0,
+      doubleRoomsCount: Number(doubleRoomsCount) || 0,
+      tripleRoomsCount: Number(tripleRoomsCount) || 0,
     });
 
     return sendSuccess(res, 'Property created successfully', property, 201);
@@ -129,7 +147,8 @@ export const createRoom = async (req: AuthRequest, res: Response) => {
     }
 
     const room = await AdminService.createRoom({
-      floorId,
+      propertyId: req.body.propertyId || req.body.floorId,
+      floorNumber: Number(req.body.floorNumber) || 1,
       roomNumber,
       type: (type as RoomType) || RoomType.DOUBLE_SHARING,
       monthlyRent: Number(monthlyRent) || 8500,
@@ -180,14 +199,12 @@ export const createStaff = async (req: AuthRequest, res: Response) => {
       return sendError(res, 'Name, email, and phone are required', 400);
     }
 
-    const staff = await AdminService.createStaff({
-      ownerId,
+    const staff = await AdminService.createStaff(ownerId, {
       fullName,
       email,
       phone,
-      role,
-      propertyIds,
-      password,
+      role: (role as UserRole) || UserRole.MANAGER,
+      propertyId: Array.isArray(propertyIds) ? propertyIds[0] : (propertyIds || req.body.propertyId || ''),
     });
 
     return sendSuccess(res, 'Staff member created successfully', staff, 201);
@@ -236,20 +253,19 @@ export const onboardTenant = async (req: AuthRequest, res: Response) => {
       return sendError(res, 'Property, bed, name, and phone are required', 400);
     }
 
-    const stay = await AdminService.onboardTenant({
-      ownerId,
-      propertyId,
-      bedId,
+    const stay = await AdminService.onboardTenant(ownerId, {
       fullName,
       email: email || `${phone}@smartpg.com`,
       phone,
+      propertyId,
+      bedId,
       monthlyRent: Number(monthlyRent) || 8500,
       securityDeposit: Number(securityDeposit) || 10000,
-      parentName,
-      parentPhone,
+      startDate: checkInDate || new Date().toISOString(),
+      emergencyContactName: parentName,
+      emergencyContactPhone: parentPhone,
       permanentAddress,
       idProofNumber,
-      checkInDate,
     });
 
     return sendSuccess(res, 'Tenant onboarded successfully', stay, 201);
@@ -280,7 +296,7 @@ export const updateComplaintStatus = async (req: AuthRequest, res: Response) => 
     const { status, resolutionNotes } = req.body;
     if (!id || !status) return sendError(res, 'Complaint ID and status required', 400);
 
-    const updated = await AdminService.updateComplaintStatus(id, status as ComplaintStatus, resolutionNotes);
+    const updated = await AdminService.updateComplaintStatus(id, status as ComplaintStatus);
     return sendSuccess(res, 'Complaint status updated successfully', updated);
   } catch (error: any) {
     return sendError(res, error.message || 'Failed to update complaint status', 500, error);
@@ -312,19 +328,149 @@ export const addGateLog = async (req: AuthRequest, res: Response) => {
     const log = await AdminService.addGateLog({
       propertyId,
       userId: studentId,
-      studentName,
-      roomNumber,
-      type: type.toUpperCase() === 'EXIT' ? 'EXIT' : 'ENTRY',
-      reason,
-      destination,
-      expectedReturnTime,
-      isLate: Boolean(isLate),
-      loggedBy: req.user?.email || 'Manager',
+      entryType: type.toUpperCase() === 'EXIT' ? 'EXIT' : 'ENTRY',
+      passCode: req.body.passCode,
     });
 
     return sendSuccess(res, 'Gate log recorded successfully', log, 201);
   } catch (error: any) {
     return sendError(res, error.message || 'Failed to record gate log', 500, error);
+  }
+};
+
+// ==========================================
+// NOTICES
+// ==========================================
+export const listNotices = async (req: AuthRequest, res: Response) => {
+  try {
+    const ownerId = req.user?.ownerId || req.user?.userId || '';
+    const data = await AdminService.listNotices(ownerId);
+    return sendSuccess(res, 'Notices fetched successfully', data);
+  } catch (error: any) {
+    return sendError(res, error.message || 'Failed to fetch notices', 500, error);
+  }
+};
+
+export const createNotice = async (req: AuthRequest, res: Response) => {
+  try {
+    const ownerId = req.user?.ownerId || req.user?.userId || '';
+    const { title, content, category, target, isPinned } = req.body;
+    if (!title || !content) return sendError(res, 'Title and content required', 400);
+
+    const notice = await AdminService.createNotice(ownerId, {
+      title,
+      message: content,
+      propertyId: req.body.propertyId,
+    });
+    return sendSuccess(res, 'Notice created successfully', notice, 201);
+  } catch (error: any) {
+    return sendError(res, error.message || 'Failed to create notice', 500, error);
+  }
+};
+
+export const deleteNotice = async (req: AuthRequest, res: Response) => {
+  try {
+    const ownerId = req.user?.ownerId || req.user?.userId || '';
+    const id = String(req.params.id);
+    await AdminService.deleteNotice(id);
+    return sendSuccess(res, 'Notice deleted successfully', null);
+  } catch (error: any) {
+    return sendError(res, error.message || 'Failed to delete notice', 500, error);
+  }
+};
+
+// ==========================================
+// FOOD MENU
+// ==========================================
+export const getFoodMenu = async (req: AuthRequest, res: Response) => {
+  try {
+    const ownerId = req.user?.ownerId || req.user?.userId || '';
+    const menu = await AdminService.getFoodMenu(ownerId);
+    return sendSuccess(res, 'Food menu fetched successfully', menu);
+  } catch (error: any) {
+    return sendError(res, error.message || 'Failed to fetch food menu', 500, error);
+  }
+};
+
+export const updateFoodMenu = async (req: AuthRequest, res: Response) => {
+  try {
+    const ownerId = req.user?.ownerId || req.user?.userId || '';
+    const { weekMenuJson } = req.body;
+    if (!weekMenuJson) return sendError(res, 'Week menu JSON required', 400);
+
+    const menu = await AdminService.updateFoodMenu(ownerId, typeof weekMenuJson === 'string' ? weekMenuJson : JSON.stringify(weekMenuJson));
+    return sendSuccess(res, 'Food menu updated successfully', menu);
+  } catch (error: any) {
+    return sendError(res, error.message || 'Failed to update food menu', 500, error);
+  }
+};
+
+// ==========================================
+// MAINTENANCE
+// ==========================================
+export const listMaintenance = async (req: AuthRequest, res: Response) => {
+  try {
+    const ownerId = req.user?.ownerId || req.user?.userId || '';
+    const data = await AdminService.listMaintenance(ownerId);
+    return sendSuccess(res, 'Maintenance contracts fetched successfully', data);
+  } catch (error: any) {
+    return sendError(res, error.message || 'Failed to fetch maintenance contracts', 500, error);
+  }
+};
+
+export const createMaintenance = async (req: AuthRequest, res: Response) => {
+  try {
+    const ownerId = req.user?.ownerId || req.user?.userId || '';
+    const { vendorName, serviceType, startDate, endDate, cost, status } = req.body;
+    if (!vendorName || !serviceType || !startDate || !endDate) {
+      return sendError(res, 'Vendor name, service type, start and end date required', 400);
+    }
+
+    const item = await AdminService.createMaintenance(ownerId, {
+      propertyId: req.body.propertyId || '',
+      title: vendorName || serviceType,
+      amount: Number(cost || 0),
+    });
+    return sendSuccess(res, 'Maintenance contract created successfully', item, 201);
+  } catch (error: any) {
+    return sendError(res, error.message || 'Failed to create maintenance contract', 500, error);
+  }
+};
+
+// ==========================================
+// FINANCE SUMMARY
+// ==========================================
+export const getFinanceSummary = async (req: AuthRequest, res: Response) => {
+  try {
+    const ownerId = req.user?.ownerId || req.user?.userId || '';
+    const data = await AdminService.getFinanceSummary(ownerId);
+    return sendSuccess(res, 'Finance summary fetched successfully', data);
+  } catch (error: any) {
+    return sendError(res, error.message || 'Failed to fetch finance summary', 500, error);
+  }
+};
+
+// ==========================================
+// CREATE COMPLAINT
+// ==========================================
+export const createComplaint = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId || '';
+    const { propertyId, category, title, description, priority } = req.body;
+    if (!propertyId || !category || !title || !description) {
+      return sendError(res, 'Property ID, category, title, and description required', 400);
+    }
+
+    const complaint = await AdminService.createComplaint(userId, {
+      propertyId,
+      title,
+      description,
+      category,
+      priority: priority as ComplaintPriority,
+    });
+    return sendSuccess(res, 'Complaint submitted successfully', complaint, 201);
+  } catch (error: any) {
+    return sendError(res, error.message || 'Failed to create complaint', 500, error);
   }
 };
 

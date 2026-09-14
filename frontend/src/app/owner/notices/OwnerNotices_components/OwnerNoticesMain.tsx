@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { useOwnerPropertyContext } from '@/app/owner/owner_components/OwnerPropertyContext';
 import { getSession } from '@/app/owner/owner_lib/owner_auth/OwnerSession';
+import { AdminClient } from '@/app/owner/owner_lib/owner_api/AdminClient';
 
 const PRIORITY_CONFIG = {
   high:   { label: 'Urgent',    color: 'text-danger',   bg: 'bg-danger-bg',   icon: AlertCircle },
@@ -37,45 +38,50 @@ export function OwnerNoticesMain() {
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
 
-  const loadNotices = () => {
-    const all: any[] = JSON.parse(localStorage.getItem('spg_notices') || '[]');
-    const hist: any[] = JSON.parse(localStorage.getItem('spg_broadcast_history') || '[]');
-    const filtered = selectedPropertyId === 'all' ? all.filter(n => !n.isDeleted) : all.filter(n => n.propertyId === selectedPropertyId && !n.isDeleted);
-    setNotices(filtered);
-    setBroadcastHistory(hist.slice(-10).reverse());
+  const loadNotices = async () => {
+    try {
+      const res = await AdminClient.get('/admin/notices');
+      if (res.data?.success) {
+        setNotices(res.data.data || []);
+      }
+    } catch (e) {
+      console.error('Failed to load notices from backend API:', e);
+    }
   };
 
   useEffect(() => { loadNotices(); }, [selectedPropertyId]);
 
-  const saveNotice = () => {
+  const saveNotice = async () => {
     if (!form.title.trim() || !form.content.trim()) return;
     setSaving(true);
-    const all: any[] = JSON.parse(localStorage.getItem('spg_notices') || '[]');
-    const propId = selectedPropertyId === 'all' ? (properties[0]?.id || 'prop_1') : selectedPropertyId;
-    const now = new Date().toISOString();
-
-    if (editId) {
-      const updated = all.map(n => n.id === editId ? { ...n, ...form, propertyId: propId, updatedAt: now } : n);
-      localStorage.setItem('spg_notices', JSON.stringify(updated));
-      showToast('Notice updated successfully!');
-    } else {
-      const newNotice = { id: `not_${Date.now()}`, ...form, propertyId: propId, targetRole: 'all', createdAt: now, updatedAt: now, isDeleted: false };
-      localStorage.setItem('spg_notices', JSON.stringify([...all, newNotice]));
+    try {
+      await AdminClient.post('/admin/notices', {
+        title: form.title,
+        content: form.content,
+        category: form.category || 'General',
+        target: 'ALL',
+        isPinned: Boolean(form.isPinned),
+      });
       showToast('Notice published successfully!');
+      setForm(EMPTY_FORM);
+      setEditId(null);
+      setShowForm(false);
+      await loadNotices();
+    } catch (e) {
+      console.error('Failed to save notice:', e);
+    } finally {
+      setSaving(false);
     }
-    setForm(EMPTY_FORM);
-    setEditId(null);
-    setShowForm(false);
-    setSaving(false);
-    loadNotices();
   };
 
-  const deleteNotice = (id: string) => {
-    const all: any[] = JSON.parse(localStorage.getItem('spg_notices') || '[]');
-    const updated = all.map(n => n.id === id ? { ...n, isDeleted: true } : n);
-    localStorage.setItem('spg_notices', JSON.stringify(updated));
-    showToast('Notice deleted.');
-    loadNotices();
+  const deleteNotice = async (id: string) => {
+    try {
+      await AdminClient.delete(`/admin/notices/${id}`);
+      showToast('Notice deleted.');
+      await loadNotices();
+    } catch (e) {
+      console.error('Failed to delete notice:', e);
+    }
   };
 
   const startEdit = (notice: any) => {

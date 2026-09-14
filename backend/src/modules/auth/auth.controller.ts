@@ -5,6 +5,34 @@ import { generateAccessToken, generateRefreshToken } from '../../utils/jwt';
 import { sendSuccess, sendError } from '../../utils/response';
 import { AuthRequest } from '../../middleware/auth.middleware';
 
+async function getUserScope(user: { id: string; role: string; ownerId: string | null }) {
+  let assignedPropertyIds: string[] = [];
+  let propertyId: string | null = null;
+  let resolvedOwnerId: string | null = user.ownerId || user.id;
+
+  if (user.role === 'OWNER') {
+    const props = await prisma.property.findMany({
+      where: { ownerId: user.id },
+      select: { id: true },
+    });
+    assignedPropertyIds = props.map(p => p.id);
+    propertyId = assignedPropertyIds[0] || null;
+    resolvedOwnerId = user.id;
+  } else if (user.role === 'MANAGER' || user.role === 'STAFF') {
+    const assignments = await prisma.staffAssignment.findMany({
+      where: { userId: user.id },
+      include: { property: true },
+    });
+    assignedPropertyIds = assignments.map(a => a.propertyId);
+    propertyId = assignedPropertyIds[0] || null;
+    if (assignments[0]?.property?.ownerId) {
+      resolvedOwnerId = assignments[0].property.ownerId;
+    }
+  }
+
+  return { assignedPropertyIds, propertyId, ownerId: resolvedOwnerId };
+}
+
 export const login = async (req: Request, res: Response) => {
   try {
     const { email, password, expectedRole } = req.body;
@@ -34,10 +62,12 @@ export const login = async (req: Request, res: Response) => {
       return sendError(res, 'Invalid credentials', 401);
     }
 
+    const scope = await getUserScope(user);
+
     const tokenPayload = {
       userId: user.id,
       role: user.role,
-      ownerId: user.ownerId,
+      ownerId: scope.ownerId,
       email: user.email,
     };
 
@@ -59,7 +89,7 @@ export const login = async (req: Request, res: Response) => {
     await prisma.auditLog.create({
       data: {
         actorId: user.id,
-        ownerId: user.ownerId,
+        ownerId: scope.ownerId,
         action: 'USER_LOGIN',
         entityType: 'User',
         entityId: user.id,
@@ -74,7 +104,9 @@ export const login = async (req: Request, res: Response) => {
         email: user.email,
         phone: user.phone,
         role: user.role.toLowerCase(),
-        ownerId: user.ownerId,
+        ownerId: scope.ownerId,
+        propertyId: scope.propertyId,
+        assignedPropertyIds: scope.assignedPropertyIds,
         mustChangePassword: user.mustChangePassword,
       },
       accessToken,
@@ -120,13 +152,17 @@ export const getCurrentUser = async (req: AuthRequest, res: Response) => {
 
     if (!user) return sendError(res, 'User not found', 404);
 
+    const scope = await getUserScope(user);
+
     return sendSuccess(res, 'User fetched successfully', {
       id: user.id,
       name: user.fullName,
       email: user.email,
       phone: user.phone,
       role: user.role.toLowerCase(),
-      ownerId: user.ownerId,
+      ownerId: scope.ownerId,
+      propertyId: scope.propertyId,
+      assignedPropertyIds: scope.assignedPropertyIds,
       mustChangePassword: user.mustChangePassword,
     });
   } catch (error: any) {

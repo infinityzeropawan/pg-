@@ -13,6 +13,8 @@ import dynamic from 'next/dynamic';
 import { useOwnerPropertyContext } from '@/app/owner/owner_components/OwnerPropertyContext';
 import { getSession } from '@/app/owner/owner_lib/owner_auth/OwnerSession';
 
+import { AdminClient } from '@/app/owner/owner_lib/owner_api/AdminClient';
+
 const ReactApexChart = dynamic(() => import('react-apexcharts'), { ssr: false });
 
 const PRIORITY_CONFIG = {
@@ -47,26 +49,34 @@ export function OwnerComplaintsMain() {
   const [loading, setLoading] = useState(true);
   const [selectedComplaint, setSelectedComplaint] = useState<any>(null);
 
-  const load = () => {
+  const load = async () => {
     setLoading(true);
-    const all: any[] = JSON.parse(localStorage.getItem('spg_complaints') || '[]');
-    const allUsers: any[] = JSON.parse(localStorage.getItem('spg_users') || '[]');
-    const filtered = selectedPropertyId === 'all'
-      ? all.filter(c => !c.isDeleted)
-      : all.filter(c => c.propertyId === selectedPropertyId && !c.isDeleted);
-    setComplaints(filtered);
-    setUsers(allUsers);
-    setLoading(false);
+    try {
+      const res = await AdminClient.get('/admin/complaints');
+      if (res.data?.success) {
+        const all = res.data.data || [];
+        const filtered = selectedPropertyId === 'all'
+          ? all
+          : all.filter(c => c.propertyId === selectedPropertyId);
+        setComplaints(filtered);
+      }
+    } catch (e) {
+      console.error('Failed to load complaints from backend API:', e);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { load(); }, [selectedPropertyId]);
 
-  const updateStatus = (id: string, newStatus: string) => {
-    const all: any[] = JSON.parse(localStorage.getItem('spg_complaints') || '[]');
-    const updated = all.map(c => c.id === id ? { ...c, status: newStatus, updatedAt: new Date().toISOString() } : c);
-    localStorage.setItem('spg_complaints', JSON.stringify(updated));
-    load();
-    if (selectedComplaint?.id === id) setSelectedComplaint({ ...selectedComplaint, status: newStatus });
+  const updateStatus = async (id: string, newStatus: string) => {
+    try {
+      await AdminClient.patch(`/admin/complaints/${id}/status`, { status: newStatus.toUpperCase() });
+      await load();
+      if (selectedComplaint?.id === id) setSelectedComplaint({ ...selectedComplaint, status: newStatus });
+    } catch (e) {
+      console.error('Failed to update complaint status:', e);
+    }
   };
 
   const getStudentName = (studentId: string) => users.find(u => u.id === studentId)?.name || 'Unknown';

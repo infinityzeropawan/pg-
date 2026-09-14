@@ -22,12 +22,16 @@ export function useStudentProfile() {
     }
   }, [profile]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!profile || !session) return;
-    studentOperationsApi.updateProfile((profile as any).id, formData, session.id);
-    alert('Profile updated successfully.');
-    window.location.reload();
+    if (!profile) return;
+    try {
+      await studentOperationsApi.updateProfile(formData);
+      alert('Profile updated successfully.');
+      window.location.reload();
+    } catch (err: any) {
+      alert(err.message || 'Failed to update profile');
+    }
   };
 
   return {

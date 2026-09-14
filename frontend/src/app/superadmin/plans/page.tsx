@@ -10,11 +10,11 @@ import { SuperadminUseSuperAdminPlansActions } from '@/app/superadmin/plans/Supe
 
 export default function SubscriptionPlansPage() {
   const { plans, loading, refetch } = SuperadminUseSuperAdminPlansData();
-  const { editPlan, setEditPlan, handleSave } = SuperadminUseSuperAdminPlansActions(refetch);
+  const { editPlan, setEditPlan, handleCreateNew, handleSave } = SuperadminUseSuperAdminPlansActions(refetch);
 
   return (
     <div className="space-y-6 pb-20">
-      <SuperAdminPlansHeader />
+      <SuperAdminPlansHeader onCreateClick={handleCreateNew} />
       
       <SuperAdminPlansGrid 
         plans={plans} 

@@ -574,5 +574,134 @@ class AdminService {
             },
         });
     }
+    // ==========================================
+    // 8. NOTICES & ANNOUNCEMENTS
+    // ==========================================
+    static async listNotices(ownerId) {
+        return db_1.prisma.notice.findMany({
+            where: { ownerId },
+            orderBy: { createdAt: 'desc' },
+        });
+    }
+    static async createNotice(data) {
+        return db_1.prisma.notice.create({
+            data: {
+                ownerId: data.ownerId,
+                title: data.title,
+                content: data.content,
+                category: data.category || 'General',
+                target: data.target || 'ALL',
+                isPinned: data.isPinned || false,
+            },
+        });
+    }
+    static async deleteNotice(id, ownerId) {
+        return db_1.prisma.notice.deleteMany({
+            where: { id, ownerId },
+        });
+    }
+    // ==========================================
+    // 9. FOOD MENU
+    // ==========================================
+    static async getFoodMenu(ownerId) {
+        let menu = await db_1.prisma.foodMenu.findUnique({ where: { ownerId } });
+        if (!menu) {
+            const defaultMenu = JSON.stringify({
+                monday: { breakfast: 'Poha & Tea', lunch: 'Dal, Rice, Roti, Sabji', dinner: 'Paneer Butter Masala, Naan' },
+                tuesday: { breakfast: 'Idli Sambhar', lunch: 'Rajma Chawal, Roti', dinner: 'Mix Veg, Roti, Rice' },
+                wednesday: { breakfast: 'Aloo Paratha', lunch: 'Kadhi Chawal', dinner: 'Egg Curry / Paneer, Roti' },
+                thursday: { breakfast: 'Upma & Coffee', lunch: 'Chole Bhature', dinner: 'Dal Tadka, Jeera Rice, Roti' },
+                friday: { breakfast: 'Puri Bhaji', lunch: 'Veg Biryani, Raita', dinner: 'Dal Makhani, Naan' },
+                saturday: { breakfast: 'Dosa Sambhar', lunch: 'Khichdi, Papad', dinner: 'Aloo Gobi, Roti, Rice' },
+                sunday: { breakfast: 'Chana Masala', lunch: 'Special Thali', dinner: 'Chicken / Paneer Special' },
+            });
+            menu = await db_1.prisma.foodMenu.create({
+                data: { ownerId, weekMenuJson: defaultMenu },
+            });
+        }
+        return menu;
+    }
+    static async updateFoodMenu(ownerId, weekMenuJson) {
+        return db_1.prisma.foodMenu.upsert({
+            where: { ownerId },
+            update: { weekMenuJson },
+            create: { ownerId, weekMenuJson },
+        });
+    }
+    // ==========================================
+    // 10. MAINTENANCE & AMC CONTRACTS
+    // ==========================================
+    static async listMaintenance(ownerId) {
+        return db_1.prisma.maintenanceContract.findMany({
+            where: { ownerId },
+            orderBy: { createdAt: 'desc' },
+        });
+    }
+    static async createMaintenance(data) {
+        return db_1.prisma.maintenanceContract.create({
+            data: {
+                ownerId: data.ownerId,
+                vendorName: data.vendorName,
+                serviceType: data.serviceType,
+                startDate: new Date(data.startDate),
+                endDate: new Date(data.endDate),
+                cost: data.cost,
+                status: data.status || 'ACTIVE',
+            },
+        });
+    }
+    // ==========================================
+    // 11. FINANCE SUMMARY & DEPOSITS
+    // ==========================================
+    static async getFinanceSummary(ownerId) {
+        const props = await db_1.prisma.property.findMany({
+            where: { ownerId },
+            select: { id: true },
+        });
+        const propIds = props.map((p) => p.id);
+        const invoices = await db_1.prisma.invoice.findMany({
+            where: { propertyId: { in: propIds } },
+            orderBy: { createdAt: 'desc' },
+            take: 50,
+        });
+        const totalCollected = invoices
+            .filter((i) => i.status === 'PAID')
+            .reduce((sum, i) => sum + i.totalAmount, 0);
+        const totalPending = invoices
+            .filter((i) => i.status !== 'PAID' && i.status !== 'CANCELLED')
+            .reduce((sum, i) => sum + i.totalAmount, 0);
+        const expenses = await db_1.prisma.expense.findMany({
+            where: { propertyId: { in: propIds } },
+        });
+        const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
+        return {
+            totalCollected,
+            totalPending,
+            totalExpenses,
+            netRevenue: totalCollected - totalExpenses,
+            invoices,
+            expenses,
+        };
+    }
+    // ==========================================
+    // 12. CREATE COMPLAINT
+    // ==========================================
+    static async createComplaint(data) {
+        const prop = await db_1.prisma.property.findUnique({
+            where: { id: data.propertyId },
+            select: { ownerId: true },
+        });
+        return db_1.prisma.complaint.create({
+            data: {
+                ownerId: prop?.ownerId || data.userId,
+                propertyId: data.propertyId,
+                category: data.category,
+                title: data.title,
+                description: data.description,
+                priority: data.priority || client_1.ComplaintPriority.MEDIUM,
+                status: client_1.ComplaintStatus.OPEN,
+            },
+        });
+    }
 }
 exports.AdminService = AdminService;

@@ -26,7 +26,14 @@ export function SuperadminUseSuperAdminFeatureFlagsData() {
   const handleToggle = async (ownerId: string, feature: string) => {
     const current = flags.find((flag) => flag.ownerId === ownerId && flag.key === feature);
     const updated = await featureFlagsApi.update(feature, ownerId, !current?.isEnabled);
-    setFlags((items) => [...items.filter((flag) => flag.id !== (updated as any).id), updated]);
+    const nextFlags = [...flags.filter((flag) => !(flag.ownerId === ownerId && flag.key === feature)), updated];
+    setFlags(nextFlags);
+    setOwners((prevOwners) =>
+      prevOwners.map((owner) => ({
+        ...owner,
+        featureOverrides: nextFlags.filter((flag) => flag.ownerId === owner.id),
+      }))
+    );
   };
 
   const filtered = owners.filter(o => {

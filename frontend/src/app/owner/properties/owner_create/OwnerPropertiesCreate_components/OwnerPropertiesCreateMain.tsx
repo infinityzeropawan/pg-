@@ -104,42 +104,33 @@ export function OwnerPropertiesCreateMain() {
     }
 
     try {
-      const photosArray = (formData as any).photos.split(',').map((s: any) => s.trim()).filter(Boolean);
       
-      const newProp = propertiesApi.create({
-        ownerId: user.id,
+      // Persist to the real database via POST /api/v1/admin/properties
+      const newProp = await propertiesApi.createBackendProperty({
         name: (formData as any).name,
         slug: (formData as any).slug,
-        type: (formData as any).type as 'boys'|'girls'|'coed',
-        description: (formData as any).description,
+        type: (formData as any).type,
         address: (formData as any).address,
         city: (formData as any).city,
         pincode: (formData as any).pincode,
-        landmark: (formData as any).landmark,
-        contactName: (formData as any).contactName,
         contactPhone: (formData as any).contactPhone,
+        contactEmail: (user as any)?.email,
         floorsCount: (formData as any).floorsCount,
-        nightEntryTime: (formData as any).nightEntryTime,
-        noticePeriodDays: (formData as any).noticePeriodDays,
-        messEnabled: (formData as any).messEnabled,
-        visitorCutoff: (formData as any).visitorCutoff,
-        defaultDeposit: (formData as any).defaultDeposit,
-        rentCycleDate: (formData as any).rentCycleDate,
         amenities: amenities,
-        photos: photosArray,
+        defaultDeposit: (formData as any).defaultDeposit,
         generateRooms: (formData as any).generateRooms || (formData as any).singleRoomsCount > 0 || (formData as any).doubleRoomsCount > 0 || (formData as any).tripleRoomsCount > 0,
         singleRoomsCount: (formData as any).singleRoomsCount,
         doubleRoomsCount: (formData as any).doubleRoomsCount,
         tripleRoomsCount: (formData as any).tripleRoomsCount
       });
 
-      toast.success('Property branch created successfully!');
-      await new Promise(resolve => setTimeout(resolve, 500));
+      toast.success('Property created successfully!');
       refreshProperties();
-      router.push(`/owner/properties/${newProp.id}`);
+      const createdId = (newProp as any)?.id;
+      router.push(createdId ? `/owner/properties/${createdId}` : '/owner/properties');
       
     } catch (err: any) {
-      setError((err as any).message || 'Failed to create property. Check your subscription limit.');
+      setError((err as any).message || 'Failed to create property. Please try again.');
     } finally {
       setLoading(false);
     }

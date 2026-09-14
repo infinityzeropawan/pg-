@@ -36,7 +36,10 @@ export function useStaffDashboard() {
   const loadData = () => {
     if (staffRole === 'cook' && propertyId) {
       setMenu(foodApi.getByProperty(propertyId));
-      setStockItems(stockApi.getByProperty(propertyId));
+      stockApi.getByPropertyAsync(propertyId).then((items) => {
+        if (items.length > 0) setStockItems(items);
+        else setStockItems(stockApi.getByProperty(propertyId));
+      });
       setRequests(stockRequestsApi.getByProperty(propertyId).filter((r: unknown) => (r as any).status !== 'verified'));
     }
     if (propertyId && user) {

@@ -14,21 +14,64 @@ import dynamic from 'next/dynamic';
 
 import { useOwnerPropertyContext } from '@/app/owner/owner_components/OwnerPropertyContext';
 import { dashboardApi } from '@/app/owner/owner_lib/owner_api/OwnerDashboard';
-import { getSession } from '@/app/owner/owner_lib/owner_auth/OwnerSession';
 
 import { OwnerDashboardStatCards } from './OwnerDashboardStatCards';
 
 const ReactApexChart = dynamic(() => import('react-apexcharts'), { ssr: false });
 
+// Maps the backend GET /admin/dashboard payload into the metrics shape used by the UI
+const mapBackendMetrics = (backendData: any): any => ({
+  totalPGs: backendData.totalProperties || 0,
+  totalRooms: backendData.totalRooms || 0,
+  totalBeds: backendData.totalBeds || 0,
+  occupiedBeds: backendData.occupiedBeds || 0,
+  vacantBeds: backendData.vacantBeds || 0,
+  occupancyPercent: backendData.occupancyRate || 0,
+  thisMonthCollection: backendData.totalCollected || 0,
+  yearlyRevenue: (backendData.estimatedMonthlyRevenue || 0) * 12,
+  pendingRent: backendData.pendingRent || 0,
+  totalExpenses: backendData.totalExpenses || 0,
+  netProfit: (backendData.totalCollected || 0) - (backendData.totalExpenses || 0),
+  expenseBreakdown: backendData.expenseBreakdown || [],
+  openComplaints: backendData.openComplaints || 0,
+  staffPresent: backendData.staffPresent || 0,
+  messRevenue: backendData.messRevenue || 0,
+  occupancyByProperty: backendData.occupancyByProperty || [],
+  collectionVsPending: backendData.collectionVsPending || [],
+  defaulters: backendData.defaulters || [],
+  vacantBedsList: backendData.vacantBedsList || [],
+  latestEnquiries: backendData.latestEnquiries || []
+});
+
+const EMPTY_METRICS = mapBackendMetrics({});
+
 export function OwnerDashboardMain() {
-  const user = typeof window !== 'undefined' ? getSession() : null;
   const { properties, loading: propsLoading } = useOwnerPropertyContext();
-  
+
   const [filterPropId, setFilterPropId] = useState<string>('all');
-  
-  // Use dashboard API
-  const globalMetrics = dashboardApi.getOwnerMetrics(user?.id || '', 'all');
-  const propMetrics = dashboardApi.getOwnerMetrics(user?.id || '', filterPropId === 'all' ? properties[0]?.id || '' : filterPropId);
+  const [globalMetrics, setGlobalMetrics] = useState(EMPTY_METRICS);
+  const [propMetrics, setPropMetrics] = useState(EMPTY_METRICS);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    // Global metrics always reflect ALL properties of the owner
+    dashboardApi.fetchBackendMetrics().then((backendData) => {
+      if (isMounted && backendData) {
+        setGlobalMetrics(mapBackendMetrics(backendData));
+        if (filterPropId === 'all') setPropMetrics(mapBackendMetrics(backendData));
+      }
+    });
+
+    // Scoped metrics reflect the selected property only (real per-property filter)
+    if (filterPropId !== 'all') {
+      dashboardApi.fetchBackendMetrics(filterPropId).then((backendData) => {
+        if (isMounted && backendData) setPropMetrics(mapBackendMetrics(backendData));
+      });
+    }
+
+    return () => { isMounted = false; };
+  }, [filterPropId, properties.length]);
 
   useEffect(() => {
     if (filterPropId === 'all' && properties.length > 0) {

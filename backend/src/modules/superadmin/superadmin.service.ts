@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs';
 import { prisma } from '../../db';
-import { UserRole, OwnerRequestStatus } from '@prisma/client';
+import { UserRole, OwnerRequestStatus, StayStatus } from '@prisma/client';
 
 export class SuperadminService {
   // Dashboard metrics
@@ -9,6 +9,9 @@ export class SuperadminService {
     const totalProperties = await prisma.property.count();
     const totalBeds = await prisma.bed.count();
     const occupiedBeds = await prisma.bed.count({ where: { status: 'OCCUPIED' } });
+    const totalTenants = await prisma.tenantStay.count({
+      where: { status: { in: [StayStatus.ACTIVE, StayStatus.CHECKED_IN] } },
+    });
     const pendingRequests = await prisma.ownerRequest.count({ where: { status: 'PENDING' } });
     
     // MRR calculation based on active subscriptions
@@ -31,6 +34,8 @@ export class SuperadminService {
       totalProperties,
       totalBeds,
       occupiedBeds,
+      totalTenants,
+      totalStudents: totalTenants,
       occupancyRate: totalBeds > 0 ? Math.round((occupiedBeds / totalBeds) * 100) : 0,
       mrr: mrr / 100, // Convert Paise to Rupees for UI display
       pendingRequests,
@@ -114,6 +119,46 @@ export class SuperadminService {
       },
     });
 
+    if (status === 'APPROVED') {
+      const existingUser = await prisma.user.findFirst({
+        where: { OR: [{ email: updated.email }, { phone: updated.phone }] },
+      });
+
+      if (!existingUser) {
+        const tempPassword = 'Owner@123456';
+        const passwordHash = await bcrypt.hash(tempPassword, 10);
+
+        const createdUser = await prisma.user.create({
+          data: {
+            fullName: updated.fullName,
+            email: updated.email,
+            phone: updated.phone,
+            passwordHash,
+            role: UserRole.OWNER,
+            mustChangePassword: true,
+          },
+        });
+
+        await prisma.user.update({
+          where: { id: createdUser.id },
+          data: { ownerId: createdUser.id },
+        });
+
+        const starterPlan = await prisma.platformPlan.findFirst({ where: { code: 'STARTER' } });
+        if (starterPlan) {
+          await prisma.subscription.create({
+            data: {
+              ownerId: createdUser.id,
+              planId: starterPlan.id,
+              startDate: new Date(),
+              endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+              paymentStatus: 'PAID',
+            },
+          });
+        }
+      }
+    }
+
     await prisma.auditLog.create({
       data: {
         actorId,
@@ -184,8 +229,16 @@ export class SuperadminService {
       });
       const owner = await tx.user.update({ where: { id: created.id }, data: { ownerId: created.id } });
 
-      if (data.planId) {
-        const plan = await tx.platformPlan.findUnique({ where: { id: data.planId } });
+      if (data.planId && data.planId !== 'none') {
+        const plan = await tx.platformPlan.findFirst({
+          where: {
+            OR: [
+              { id: data.planId },
+              { code: data.planId.toUpperCase() },
+              { name: { contains: data.planId } }
+            ]
+          }
+        });
         if (!plan) throw new Error('Selected plan not found');
         await tx.subscription.create({ data: { ownerId: owner.id, planId: plan.id, startDate: new Date(), endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), paymentStatus: 'PAID' } });
       }
@@ -335,6 +388,20 @@ export class SuperadminService {
       await tx.auditLog.create({ data: { actorId: adminId, action: 'OWNER_PASSWORD_RESET', entityType: 'User', entityId: ownerId } });
       return owner;
     });
+  }
+
+  static async addOwnerNote(ownerId: string, note: string, adminId: string) {
+    if (!note || !note.trim()) throw new Error('Note text is required');
+    const audit = await prisma.auditLog.create({
+      data: {
+        actorId: adminId,
+        action: 'OWNER_INTERNAL_NOTE',
+        entityType: 'User',
+        entityId: ownerId,
+        details: JSON.stringify({ note: note.trim() }),
+      },
+    });
+    return audit;
   }
 
   static async getSettings() {

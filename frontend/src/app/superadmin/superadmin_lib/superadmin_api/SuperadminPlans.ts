@@ -42,6 +42,13 @@ export const plansApi = {
     return db.getAll<Plan>(STORAGE_KEYS.PLANS) || [];
   },
   
+  async createPlan(data: { name: string; code: string; maxProperties: number; maxBeds: number; priceMonthly: number; priceYearly: number; features: string[] }) {
+    return superadminRequest('/plans', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
   async updatePlan(id: string, data: Partial<Plan>) {
     return superadminRequest(`/plans/${id}`, {
       method: 'PUT',

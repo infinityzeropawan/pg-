@@ -38,25 +38,38 @@ export function OwnerPropertyProvider({ children }: { children: React.ReactNode 
   const [properties, setProperties] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const session = getSession();
-    if (session?.role === 'owner') {
-      const props = propertiesApi.listByOwner(session.id);
-      setProperties(props);
-      
-      const savedState = sessionStorage.getItem('spg_owner_ui_state');
-      if (savedState) {
-        setPropertyId(savedState);
+  const loadProperties = async (ownerId?: string) => {
+    setLoading(true);
+    try {
+      const backendProps = await propertiesApi.fetchProperties();
+      if (backendProps && backendProps.length > 0) {
+        setProperties(backendProps);
+        setLoading(false);
+        return;
       }
+    } catch (e) {
+      console.warn('Backend property fetch fallback to local:', e);
+    }
+    if (ownerId) {
+      const props = propertiesApi.listByOwner(ownerId);
+      setProperties(props);
     }
     setLoading(false);
+  };
+
+  useEffect(() => {
+    const session = getSession();
+    if (session) {
+      loadProperties(session.id);
+      const savedState = sessionStorage.getItem('spg_owner_ui_state');
+      if (savedState) setPropertyId(savedState);
+    } else {
+      setLoading(false);
+    }
   }, [user?.id]);
 
   const refreshProperties = () => {
-    if (user?.role === 'owner') {
-      const props = propertiesApi.listByOwner(user.id);
-      setProperties(props);
-    }
+    if (user?.id) loadProperties(user.id);
   };
 
   const setSelectedPropertyId = (id: string | 'all') => {
@@ -70,4 +83,3 @@ export function OwnerPropertyProvider({ children }: { children: React.ReactNode 
     </OwnerPropertyContext.Provider>
   );
 }
-

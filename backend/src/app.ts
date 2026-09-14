@@ -3,6 +3,9 @@ import cors from 'cors';
 import authRoutes from './modules/auth/auth.routes';
 import superadminRoutes from './modules/superadmin/superadmin.routes';
 import adminRoutes from './modules/admin/admin.routes';
+import parentRoutes from './modules/parent/parent.routes';
+import staffRoutes from './modules/staff/staff.routes';
+import studentRoutes from './modules/student/student.routes';
 import { sendSuccess, sendError } from './utils/response';
 
 const app = express();
@@ -22,6 +25,9 @@ app.get('/health', (req: Request, res: Response) => {
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/superadmin', superadminRoutes);
 app.use('/api/v1/admin', adminRoutes);
+app.use('/api/v1/parent', parentRoutes);
+app.use('/api/v1/staff', staffRoutes);
+app.use('/api/v1/student', studentRoutes);
 
 // 404 Handler
 app.use((req: Request, res: Response) => {

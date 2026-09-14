@@ -93,6 +93,41 @@ class SuperadminService {
                 rejectionReason: rejectionReason || null,
             },
         });
+        if (status === 'APPROVED') {
+            const existingUser = await db_1.prisma.user.findFirst({
+                where: { OR: [{ email: updated.email }, { phone: updated.phone }] },
+            });
+            if (!existingUser) {
+                const tempPassword = 'Owner@123456';
+                const passwordHash = await bcryptjs_1.default.hash(tempPassword, 10);
+                const createdUser = await db_1.prisma.user.create({
+                    data: {
+                        fullName: updated.fullName,
+                        email: updated.email,
+                        phone: updated.phone,
+                        passwordHash,
+                        role: client_1.UserRole.OWNER,
+                        mustChangePassword: true,
+                    },
+                });
+                await db_1.prisma.user.update({
+                    where: { id: createdUser.id },
+                    data: { ownerId: createdUser.id },
+                });
+                const starterPlan = await db_1.prisma.platformPlan.findFirst({ where: { code: 'STARTER' } });
+                if (starterPlan) {
+                    await db_1.prisma.subscription.create({
+                        data: {
+                            ownerId: createdUser.id,
+                            planId: starterPlan.id,
+                            startDate: new Date(),
+                            endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+                            paymentStatus: 'PAID',
+                        },
+                    });
+                }
+            }
+        }
         await db_1.prisma.auditLog.create({
             data: {
                 actorId,
@@ -145,8 +180,16 @@ class SuperadminService {
                 data: { fullName: data.fullName, email: data.email, phone: data.phone, passwordHash, role: client_1.UserRole.OWNER, mustChangePassword: true },
             });
             const owner = await tx.user.update({ where: { id: created.id }, data: { ownerId: created.id } });
-            if (data.planId) {
-                const plan = await tx.platformPlan.findUnique({ where: { id: data.planId } });
+            if (data.planId && data.planId !== 'none') {
+                const plan = await tx.platformPlan.findFirst({
+                    where: {
+                        OR: [
+                            { id: data.planId },
+                            { code: data.planId.toUpperCase() },
+                            { name: { contains: data.planId } }
+                        ]
+                    }
+                });
                 if (!plan)
                     throw new Error('Selected plan not found');
                 await tx.subscription.create({ data: { ownerId: owner.id, planId: plan.id, startDate: new Date(), endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), paymentStatus: 'PAID' } });
@@ -270,6 +313,20 @@ class SuperadminService {
             await tx.auditLog.create({ data: { actorId: adminId, action: 'OWNER_PASSWORD_RESET', entityType: 'User', entityId: ownerId } });
             return owner;
         });
+    }
+    static async addOwnerNote(ownerId, note, adminId) {
+        if (!note || !note.trim())
+            throw new Error('Note text is required');
+        const audit = await db_1.prisma.auditLog.create({
+            data: {
+                actorId: adminId,
+                action: 'OWNER_INTERNAL_NOTE',
+                entityType: 'User',
+                entityId: ownerId,
+                details: JSON.stringify({ note: note.trim() }),
+            },
+        });
+        return audit;
     }
     static async getSettings() {
         return db_1.prisma.platformSetting.upsert({ where: { id: 'platform' }, update: {}, create: { id: 'platform' } });

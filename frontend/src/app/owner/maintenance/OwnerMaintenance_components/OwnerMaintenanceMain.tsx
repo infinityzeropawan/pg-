@@ -6,6 +6,7 @@
 import { useState, useEffect } from 'react';
 import { Wrench, Shield, Calendar, AlertTriangle, CheckCircle2, Clock, Phone, Plus, RefreshCw } from 'lucide-react';
 import { useOwnerPropertyContext } from '@/app/owner/owner_components/OwnerPropertyContext';
+import { AdminClient } from '@/app/owner/owner_lib/owner_api/AdminClient';
 
 const STATUS_CONFIG: Record<string, { color: string; bg: string; label: string }> = {
   Active:      { color: 'text-success', bg: 'bg-success-bg',  label: 'Active' },
@@ -22,18 +23,24 @@ type MainTab = 'amc' | 'preventive' | 'log';
 export function OwnerMaintenanceMain() {
   const { properties, selectedPropertyId } = useOwnerPropertyContext();
   const [activeTab, setActiveTab] = useState<MainTab>('amc');
+
   const [amcContracts, setAmcContracts] = useState<any[]>([]);
   const [schedule, setSchedule] = useState<any[]>([]);
   const [complaints, setComplaints] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const load = () => {
+  const load = async () => {
     setLoading(true);
-    const propFilter = (arr: any[]) => selectedPropertyId === 'all' ? arr : arr.filter(x => x.propertyId === selectedPropertyId);
-    setAmcContracts(propFilter(JSON.parse(localStorage.getItem('spg_amc_contracts') || '[]')).filter(a => !a.isDeleted));
-    setSchedule(propFilter(JSON.parse(localStorage.getItem('spg_preventive_schedule') || '[]')));
-    setComplaints(propFilter(JSON.parse(localStorage.getItem('spg_complaints') || '[]')).filter(c => !c.isDeleted));
-    setLoading(false);
+    try {
+      const res = await AdminClient.get('/admin/maintenance');
+      if (res.data?.success) {
+        setAmcContracts(res.data.data || []);
+      }
+    } catch (e) {
+      console.error('Failed to load maintenance contracts from backend API:', e);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { load(); }, [selectedPropertyId]);

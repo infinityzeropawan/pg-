@@ -17,14 +17,14 @@ export function OwnerFirstLoginMain() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
       const session = getSession();
       if(!session) return;
-      api.changePassword(session.id, newPassword);
+      await api.changePassword(session.id, newPassword);
       session.mustChangePassword = false;
       setSession(session);
       router.push('/owner/dashboard');

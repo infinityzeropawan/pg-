@@ -52,16 +52,19 @@ export function StudentAttendanceMain() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [lastSubmittedLog, setLastSubmittedLog] = useState<any>(null);
 
-  const loadLogs = () => {
-    if (profile?.id) {
-      const gateLogs = studentOperationsApi.getGateLogs(profile.id);
-      setLogs(gateLogs);
+  const loadLogs = async () => {
+    try {
+      const gateLogs = await studentOperationsApi.getGateLogs();
+      const logsArray = Array.isArray(gateLogs) ? gateLogs : [];
+      setLogs(logsArray);
       
       // Auto-set the next expected action based on last log
-      if (gateLogs.length > 0) {
-        const lastLog = gateLogs[0];
-        setGateAction(lastLog.type === 'exit' ? 'entry' : 'exit');
+      if (logsArray.length > 0) {
+        const lastLog = logsArray[0];
+        setGateAction((lastLog.type || '').toLowerCase() === 'exit' ? 'entry' : 'exit');
       }
+    } catch (e) {
+      console.error('Failed to load gate logs:', e);
     }
   };
 
@@ -69,7 +72,7 @@ export function StudentAttendanceMain() {
     loadLogs();
   }, [profile?.id]);
 
-  const currentStatus = logs.length > 0 && logs[0].type === 'exit' ? 'OUTSIDE' : 'INSIDE';
+  const currentStatus = logs.length > 0 && (logs[0].type || '').toLowerCase() === 'exit' ? 'OUTSIDE' : 'INSIDE';
   const lastActivity = logs.length > 0 ? logs[0] : null;
 
   const handleOpenScanner = () => {
@@ -83,20 +86,17 @@ export function StudentAttendanceMain() {
     setScanStep('form');
   };
 
-  const handleSubmitAttendance = (e: React.FormEvent) => {
+  const handleSubmitAttendance = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!profile?.id) return;
 
     setIsSubmitting(true);
     try {
-      const newLog = studentOperationsApi.scanGateAttendance({
-        studentId: profile.id,
-        propertyId: profile.propertyId || 'prop_1',
+      const newLog = await studentOperationsApi.recordGateAttendance({
         type: gateAction,
         reason: selectedReason,
         destination: destination || selectedReason,
         expectedReturnTime: gateAction === 'exit' ? expectedReturnTime : undefined,
-        userId: session?.id || profile.userId || 'usr_demo'
       });
 
       setLastSubmittedLog(newLog);

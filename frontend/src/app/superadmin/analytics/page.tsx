@@ -10,9 +10,9 @@ import { SuperAdminAnalyticsTopProperties } from '@/app/superadmin/analytics/Sup
 import { SUPER_ADMIN_MOCK_REVENUE_DATA, SUPER_ADMIN_MOCK_PLAN_DATA } from '@/app/superadmin/analytics/SuperAdminAnalytics_utils/SuperAdminAnalytics.constants';
 
 export default function AnalyticsPage() {
-  const { stats } = SuperadminUseSuperAdminAnalyticsData();
+  const { stats, planData, revenueData } = SuperadminUseSuperAdminAnalyticsData();
 
-  if (!stats) return null; // Loading state handled by loading.tsx or Suspense boundary if wrapped
+  if (!stats) return null;
 
   return (
     <div className="space-y-6 pb-20">
@@ -21,8 +21,8 @@ export default function AnalyticsPage() {
       <SuperAdminAnalyticsKPIs stats={stats} />
       
       <SuperAdminAnalyticsCharts 
-        revenueData={SUPER_ADMIN_MOCK_REVENUE_DATA} 
-        planData={SUPER_ADMIN_MOCK_PLAN_DATA} 
+        revenueData={revenueData} 
+        planData={planData} 
       />
       
       <SuperAdminAnalyticsTopProperties />

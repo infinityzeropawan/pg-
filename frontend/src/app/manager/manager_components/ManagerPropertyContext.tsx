@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
 import { api } from '@/app/manager/manager_lib/manager_api/ManagerApi';
+import { propertiesApi } from '@/app/owner/owner_lib/owner_api/OwnerProperties';
 import { getSession } from '@/app/manager/manager_lib/manager_auth/ManagerSession';
 
 import type { SessionUser } from '@/lib/types';
@@ -22,37 +23,53 @@ const ManagerPropertyContext = createContext<ManagerPropertyContextType>({
 });
 
 export const ManagerPropertyProvider = ({ children }: { children: React.ReactNode }) => {
-  console.log('ManagerPropertyProvider render');
   const [properties, setProperties] = useState<unknown[]>([]);
   const [selectedPropertyId, setPropertyId] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<SessionUser | null>(null);
 
-  // Read session from localStorage on client mount only (SSR-safe).
   useEffect(() => {
     const session = getSession();
     setUser(session);
   }, []);
 
-  // Load properties once we have the user session.
   useEffect(() => {
-    if (user === null) {
-      // Not loaded yet — keep loading=true until user state resolves.
-      return;
-    }
-    if (user?.role === 'manager' && user.assignedPropertyIds && user.assignedPropertyIds.length > 0) {
-      const allProps = api.properties.listAll();
-      const assignedProps = allProps.filter((p) => user.assignedPropertyIds?.includes((p as { id: string }).id));
-      console.log('ManagerPropertyContext matched props:', { allProps, assignedProps, user });
-      setProperties(assignedProps);
-      if (assignedProps.length > 0) {
-        setPropertyId((assignedProps[0] as { id: string }).id);
+    if (user === null) return;
+
+    const loadBackendProperties = async () => {
+      try {
+        const backendProps = await propertiesApi.fetchProperties();
+        if (backendProps && backendProps.length > 0) {
+          const filtered = user.assignedPropertyIds && user.assignedPropertyIds.length > 0
+            ? backendProps.filter((p: any) => user.assignedPropertyIds?.includes(p.id))
+            : backendProps;
+          
+          setProperties(filtered);
+          if (filtered.length > 0) {
+            setPropertyId(filtered[0].id);
+          } else if (user.propertyId) {
+            setPropertyId(user.propertyId);
+          }
+          setLoading(false);
+          return;
+        }
+      } catch (e) {
+        console.warn('Backend properties fetch fallback to local:', e);
       }
-    } else {
-      console.log('ManagerPropertyContext failed condition:', { role: user?.role, assigned: user?.assignedPropertyIds });
-    }
-    console.log('ManagerPropertyContext setting loading to false');
-    setLoading(false);
+
+      // Fallback
+      if (user.assignedPropertyIds && user.assignedPropertyIds.length > 0) {
+        const allProps = api.properties.listAll();
+        const assignedProps = allProps.filter((p) => user.assignedPropertyIds?.includes((p as { id: string }).id));
+        setProperties(assignedProps);
+        if (assignedProps.length > 0) {
+          setPropertyId((assignedProps[0] as { id: string }).id);
+        }
+      }
+      setLoading(false);
+    };
+
+    loadBackendProperties();
   }, [user]);
 
   return (

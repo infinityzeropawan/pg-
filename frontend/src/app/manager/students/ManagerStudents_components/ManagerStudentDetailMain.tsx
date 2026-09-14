@@ -42,7 +42,7 @@ const t = (api.students.getById ? api.students.getById(id) : null) as unknown as
       setStudent(t);
       if (t) {
         if (t.user) {
-          setInvoices(studentOperationsApi.getInvoices(t.user.id));
+          studentOperationsApi.getInvoices(t.user.id).then(invs => setInvoices(invs || []));
         }
       }
     }

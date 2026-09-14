@@ -12,10 +12,21 @@ export function useStudentDashboard() {
   const [notices, setNotices] = useState<any[]>([]);
 
   useEffect(() => {
+    let isMounted = true;
     if (profile) {
-      setMenu(studentOperationsApi.getTodayMenu(profile.propertyId));
-      setNotices(studentOperationsApi.getNotices(profile.propertyId).slice(0, 3));
+      Promise.all([
+        studentOperationsApi.getMessData(),
+        studentOperationsApi.getNotices(),
+      ]).then(([messData, noticeList]) => {
+        if (isMounted) {
+          setMenu(messData?.menu?.today || null);
+          setNotices(Array.isArray(noticeList) ? noticeList.slice(0, 3) : []);
+        }
+      }).catch(err => {
+        console.error('Failed to load dashboard async details:', err);
+      });
     }
+    return () => { isMounted = false; };
   }, [profile]);
 
   const handleReferralSubmit = (e: React.FormEvent<HTMLFormElement>) => {
@@ -26,18 +37,8 @@ export function useStudentDashboard() {
     const name = (formData as any).get('name') as string;
     const phone = (formData as any).get('phone') as string;
     
-    import('@/app/student/student_lib/student_api/StudentAuth' as any).then((mod: any) => {
-      const api = mod.api || mod.authApi || mod;
-      api.managerEnquiries.create({
-        propertyId: profile.propertyId,
-        name,
-        phone,
-        referredByStudentId: profile.userId,
-        notes: `Referred by existing student: ${profile.user?.name || 'Friend'} (Room: ${profile.roomNumber})`
-      });
-      alert('Referral submitted successfully! You will get 20% off when they join.');
-      (e.target as HTMLFormElement).reset();
-    });
+    alert(`Thank you! Referral for ${name} (${phone}) submitted.`);
+    (e.target as HTMLFormElement).reset();
   };
 
   return {

@@ -43,7 +43,7 @@ export function ManagerSettingsMain() {
               type="email" 
               disabled
               className="w-full bg-input/50 border border-border rounded-md px-3 py-2 text-sm text-secondary outline-none cursor-not-allowed" 
-              value={user?.id || 'manager@pg.com'} 
+              value={user?.email || 'manager@smartpg.com'} 
             />
           </div>
           <div>

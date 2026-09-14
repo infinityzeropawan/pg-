@@ -21,9 +21,9 @@ export const SuperAdminCreateOwnerPlanFields: React.FC<SuperAdminCreateOwnerPlan
               className="w-full p-2.5 rounded-md border border bg-input text-primary text-sm"
             >
               <option value="none">No Plan (Require Purchase)</option>
-              <option value="basic">Basic (1 PG, 50 Beds)</option>
-              <option value="pro">Pro (3 PGs, 200 Beds)</option>
-              <option value="enterprise">Enterprise (Unlimited)</option>
+              <option value="STARTER">Starter (1 PG, 50 Beds)</option>
+              <option value="GROWTH">Growth (3 PGs, 200 Beds)</option>
+              <option value="ENTERPRISE">Enterprise (Unlimited)</option>
             </select>
           </div>
           <div>

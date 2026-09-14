@@ -73,11 +73,13 @@ export const SuperAdminOwnersTable: React.FC<SuperAdminOwnersTableProps> = ({
                   <td className="px-6 py-4 text-right">
                     <div className="transition-opacity">
                       <button 
-                        className="p-2 text-secondary hover:text-danger hover:bg-danger-bg rounded-[var(--radius-md,8px)] motion-safe:transition-colors" 
-                        title="Quick Actions"
-                        onClick={(e) => e.stopPropagation()} // Prevent row click
+                        className="px-3 py-1.5 text-xs font-medium text-primary bg-card border border rounded-[var(--radius-md,8px)] hover:bg-primary hover:text-white motion-safe:transition-colors shadow-sm" 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onRowClick(o.id);
+                        }}
                       >
-                        <MoreVertical className="w-4 h-4" />
+                        View Profile
                       </button>
                     </div>
                   </td>

@@ -18,6 +18,31 @@ export interface StockItem extends BaseEntity {
 }
 
 export const stockApi = {
+  getByPropertyAsync: async (propertyId: string): Promise<StockItem[]> => {
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+      const res = await fetch('http://localhost:5000/api/v1/staff/stock', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.data)) {
+        return data.data.map((item: any) => ({
+          id: item.id,
+          propertyId: item.propertyId,
+          name: item.itemName,
+          quantity: item.currentQuantity,
+          unit: item.unit,
+          category: item.category,
+          lowStockThreshold: item.minThreshold,
+          updatedAt: item.updatedAt,
+        }));
+      }
+    } catch (e) {
+      console.error('Failed to fetch staff stock from backend API:', e);
+    }
+    return [];
+  },
+
   getByProperty: (propertyId: string): StockItem[] => {
     return db.getAll<StockItem>(STORAGE_KEYS.INVENTORY || 'spg_inventory')
       .filter(i => i.propertyId === propertyId)

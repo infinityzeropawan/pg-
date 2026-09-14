@@ -18,12 +18,12 @@ export function OwnerLoginMain() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      const user = api.login({ email, password, expectedRole: 'owner' });
+      const user = await api.login({ email, password, expectedRole: 'owner' });
       setSession(user);
       router.push(user.mustChangePassword ? '/owner/first-login' : '/owner/dashboard');
     } catch (err: any) {

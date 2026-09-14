@@ -8,25 +8,30 @@ const db_1 = require("./db");
 const client_1 = require("@prisma/client");
 async function main() {
     console.log('🌱 Seeding database...');
-    // 1. Seed SuperAdmin User
-    const adminEmail = 'admin@smartpg.com';
-    let admin = await db_1.prisma.user.findUnique({ where: { email: adminEmail } });
-    if (!admin) {
-        const passwordHash = await bcryptjs_1.default.hash('SuperAdmin@123456', 10);
-        admin = await db_1.prisma.user.create({
-            data: {
-                email: adminEmail,
-                phone: '9999999999',
-                fullName: 'Platform SuperAdmin',
-                passwordHash,
-                role: client_1.UserRole.SUPERADMIN,
-                mustChangePassword: false,
-            },
-        });
-        console.log(`✅ Created SuperAdmin user: ${adminEmail} (Password: SuperAdmin@123456)`);
-    }
-    else {
-        console.log(`ℹ️ SuperAdmin already exists: ${adminEmail}`);
+    // 1. Seed SuperAdmin Users
+    const adminEmails = [
+        { email: 'admin@smartpg.com', pass: 'SuperAdmin@123456' },
+        { email: 'superadmin@gmail.com', pass: 'Super@123' },
+    ];
+    let admin = null;
+    for (const a of adminEmails) {
+        let existing = await db_1.prisma.user.findUnique({ where: { email: a.email } });
+        if (!existing) {
+            const passwordHash = await bcryptjs_1.default.hash(a.pass, 10);
+            existing = await db_1.prisma.user.create({
+                data: {
+                    email: a.email,
+                    phone: a.email.includes('gmail') ? '9999999998' : '9999999999',
+                    fullName: 'Platform SuperAdmin',
+                    passwordHash,
+                    role: client_1.UserRole.SUPERADMIN,
+                    mustChangePassword: false,
+                },
+            });
+            console.log(`✅ Created SuperAdmin user: ${a.email} (Password: ${a.pass})`);
+        }
+        if (!admin)
+            admin = existing;
     }
     // 2. Seed Platform Plans
     const plansData = [
@@ -114,39 +119,47 @@ async function main() {
             console.log(`✅ Seeded Owner Request for: ${req.fullName}`);
         }
     }
-    // 5. Seed Demo Owner User
-    const ownerEmail = 'owner@smartpg.com';
-    let owner = await db_1.prisma.user.findUnique({ where: { email: ownerEmail } });
-    if (!owner) {
-        const passwordHash = await bcryptjs_1.default.hash('Owner@123456', 10);
-        owner = await db_1.prisma.user.create({
-            data: {
-                email: ownerEmail,
-                phone: '9876543201',
-                fullName: 'Rajesh Gupta',
-                passwordHash,
-                role: client_1.UserRole.OWNER,
-                mustChangePassword: false,
-            },
-        });
-        console.log(`✅ Created Owner user: ${ownerEmail} (Password: Owner@123456)`);
-        // Assign Subscription
-        if (starterPlan) {
-            await db_1.prisma.subscription.create({
+    // 5. Seed Demo Owner Users
+    const ownerAccounts = [
+        { email: 'owner@smartpg.com', pass: 'Owner@123456', phone: '9876543201' },
+        { email: 'owner@gmail.com', pass: 'Owner3@123', phone: '9876543299' },
+    ];
+    let owner = null;
+    for (const o of ownerAccounts) {
+        let existing = await db_1.prisma.user.findUnique({ where: { email: o.email } });
+        if (!existing) {
+            const passwordHash = await bcryptjs_1.default.hash(o.pass, 10);
+            existing = await db_1.prisma.user.create({
                 data: {
-                    ownerId: owner.id,
-                    planId: starterPlan.id,
-                    startDate: new Date(),
-                    endDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-                    isActive: true,
-                    autoRenew: true,
-                    paymentStatus: 'PAID',
+                    email: o.email,
+                    phone: o.phone,
+                    fullName: 'Rajesh Gupta (PG Owner)',
+                    passwordHash,
+                    role: client_1.UserRole.OWNER,
+                    mustChangePassword: false,
                 },
             });
+            await db_1.prisma.user.update({
+                where: { id: existing.id },
+                data: { ownerId: owner ? owner.id : existing.id },
+            });
+            console.log(`✅ Created Owner user: ${o.email} (Password: ${o.pass})`);
+            if (starterPlan) {
+                await db_1.prisma.subscription.create({
+                    data: {
+                        ownerId: existing.id,
+                        planId: starterPlan.id,
+                        startDate: new Date(),
+                        endDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+                        isActive: true,
+                        autoRenew: true,
+                        paymentStatus: 'PAID',
+                    },
+                });
+            }
         }
-    }
-    else {
-        console.log(`ℹ️ Owner already exists: ${ownerEmail}`);
+        if (!owner)
+            owner = existing;
     }
     // 6. Seed Property, Floors, Rooms & Beds for Owner
     let property = await db_1.prisma.property.findFirst({ where: { ownerId: owner.id } });
@@ -204,134 +217,245 @@ async function main() {
         }
         console.log('✅ Created 2 Floors, 6 Rooms, and 12 Beds for Sunshine Luxury PG');
     }
-    // 7. Seed Demo Manager User
-    const managerEmail = 'manager@smartpg.com';
-    let manager = await db_1.prisma.user.findUnique({ where: { email: managerEmail } });
-    if (!manager) {
-        const passwordHash = await bcryptjs_1.default.hash('Manager@123456', 10);
-        manager = await db_1.prisma.user.create({
-            data: {
-                ownerId: owner.id,
-                email: managerEmail,
-                phone: '9876543202',
-                fullName: 'Ramesh Kumar (PG Manager)',
-                passwordHash,
-                role: client_1.UserRole.MANAGER,
-                mustChangePassword: false,
-            },
-        });
-        if (property) {
-            await db_1.prisma.staffAssignment.create({
+    // 7. Seed Demo Manager Users
+    const managerAccounts = [
+        { email: 'manager@smartpg.com', pass: 'Manager@123456', phone: '9876543202' },
+        { email: 'manager3@gmail.com', pass: 'Manager@123', phone: '9876543298' },
+        { email: 'cook3@gmail.com', pass: 'Cook@123', phone: '9876543297', role: client_1.UserRole.STAFF, name: 'Chef Suresh (Cook)' },
+    ];
+    let manager = null;
+    for (const m of managerAccounts) {
+        let existing = await db_1.prisma.user.findUnique({ where: { email: m.email } });
+        if (!existing) {
+            const passwordHash = await bcryptjs_1.default.hash(m.pass, 10);
+            existing = await db_1.prisma.user.create({
                 data: {
-                    userId: manager.id,
-                    propertyId: property.id,
-                    permissions: JSON.stringify(['all']),
+                    ownerId: owner.id,
+                    email: m.email,
+                    phone: m.phone,
+                    fullName: m.name || 'Ramesh Kumar (PG Manager)',
+                    passwordHash,
+                    role: m.role || client_1.UserRole.MANAGER,
+                    mustChangePassword: false,
                 },
             });
+            if (property) {
+                await db_1.prisma.staffAssignment.create({
+                    data: {
+                        userId: existing.id,
+                        propertyId: property.id,
+                        permissions: JSON.stringify(['all']),
+                    },
+                });
+            }
+            console.log(`✅ Created Manager/Staff user: ${m.email} (Password: ${m.pass})`);
         }
-        console.log(`✅ Created Manager user: ${managerEmail} (Password: Manager@123456)`);
+        if (!manager && (m.role || client_1.UserRole.MANAGER) === client_1.UserRole.MANAGER)
+            manager = existing;
     }
     // 8. Seed Demo Parent & Student
-    const studentEmail = 'student@smartpg.com';
-    let student = await db_1.prisma.user.findUnique({ where: { email: studentEmail } });
-    if (!student && property) {
-        const parentPass = await bcryptjs_1.default.hash('Parent@123456', 10);
-        const parentUser = await db_1.prisma.user.create({
-            data: {
-                ownerId: owner.id,
-                fullName: 'Surendra Verma (Father)',
-                email: 'parent@smartpg.com',
-                phone: '9876543203',
-                passwordHash: parentPass,
-                role: client_1.UserRole.PARENT,
-                mustChangePassword: false,
-            },
-        });
-        const parentProfile = await db_1.prisma.parentProfile.create({
-            data: {
-                userId: parentUser.id,
-                relation: 'Father',
-                address: '24, Civil Lines, Kanpur, UP',
-            },
-        });
-        const studentPass = await bcryptjs_1.default.hash('Student@123456', 10);
-        student = await db_1.prisma.user.create({
-            data: {
-                ownerId: owner.id,
-                fullName: 'Rahul Verma',
-                email: studentEmail,
-                phone: '9876543204',
-                passwordHash: studentPass,
-                role: client_1.UserRole.STUDENT,
-                mustChangePassword: false,
-            },
-        });
-        const tenantProfile = await db_1.prisma.tenantProfile.create({
-            data: {
-                userId: student.id,
-                emergencyContactName: 'Surendra Verma',
-                emergencyContactPhone: '9876543203',
-                permanentAddress: '24, Civil Lines, Kanpur, UP',
-                idProofType: 'AADHAAR',
-                idProofNumber: '1234-5678-9012',
-                collegeOrCompany: 'PES University, CSE Dept.',
-                parentProfileId: parentProfile.id,
-            },
-        });
-        // Find first vacant bed in Room 101
-        const bed = await db_1.prisma.bed.findFirst({
-            where: { room: { roomNumber: '101', floor: { propertyId: property.id } } },
-            include: { room: true },
-        });
-        if (bed) {
-            await db_1.prisma.tenantStay.create({
+    const studentAccounts = [
+        { email: 'student@smartpg.com', pass: 'Student@123456', phone: '9876543204', name: 'Rahul Verma', parentEmail: 'parent@smartpg.com', parentPass: 'Parent@123456' },
+        { email: 'student3@gmail.com', pass: 'Student@123', phone: '9876543296', name: 'Aarav Patel', parentEmail: 'parent3@gmail.com', parentPass: 'Parent@123' },
+    ];
+    let student = null;
+    for (const st of studentAccounts) {
+        let existing = await db_1.prisma.user.findFirst({ where: { OR: [{ email: st.email }, { phone: st.phone }] } });
+        if (!existing && property) {
+            const parentEmail = st.parentEmail;
+            let parentUser = await db_1.prisma.user.findUnique({ where: { email: parentEmail } });
+            if (!parentUser) {
+                const parentPass = await bcryptjs_1.default.hash(st.parentPass, 10);
+                parentUser = await db_1.prisma.user.create({
+                    data: {
+                        ownerId: owner.id,
+                        fullName: `Parent of ${st.name}`,
+                        email: parentEmail,
+                        phone: `977654${st.phone.slice(-4)}`,
+                        passwordHash: parentPass,
+                        role: client_1.UserRole.PARENT,
+                        mustChangePassword: false,
+                    },
+                });
+            }
+            let parentProfile = await db_1.prisma.parentProfile.findUnique({ where: { userId: parentUser.id } });
+            if (!parentProfile) {
+                parentProfile = await db_1.prisma.parentProfile.create({
+                    data: {
+                        userId: parentUser.id,
+                        relation: 'Father',
+                        address: '24, Civil Lines, Kanpur, UP',
+                    },
+                });
+            }
+            const studentPass = await bcryptjs_1.default.hash(st.pass, 10);
+            existing = await db_1.prisma.user.create({
+                data: {
+                    ownerId: owner.id,
+                    fullName: st.name,
+                    email: st.email,
+                    phone: st.phone,
+                    passwordHash: studentPass,
+                    role: client_1.UserRole.STUDENT,
+                    mustChangePassword: false,
+                },
+            });
+            const tenantProfile = await db_1.prisma.tenantProfile.create({
+                data: {
+                    userId: existing.id,
+                    emergencyContactName: `Parent of ${st.name}`,
+                    emergencyContactPhone: `987654${st.phone.slice(-4)}`,
+                    permanentAddress: '24, Civil Lines, Kanpur, UP',
+                    idProofType: 'AADHAAR',
+                    idProofNumber: '1234-5678-9012',
+                    collegeOrCompany: 'PES University, CSE Dept.',
+                    parentProfileId: parentProfile.id,
+                },
+            });
+            // Find first vacant bed
+            const bed = await db_1.prisma.bed.findFirst({
+                where: { status: client_1.BedStatus.VACANT, room: { floor: { propertyId: property.id } } },
+                include: { room: true },
+            });
+            if (bed) {
+                await db_1.prisma.tenantStay.create({
+                    data: {
+                        ownerId: owner.id,
+                        propertyId: property.id,
+                        tenantId: tenantProfile.id,
+                        bedId: bed.id,
+                        monthlyRent: 8500,
+                        securityDeposit: 10000,
+                        status: client_1.StayStatus.ACTIVE,
+                        startDate: new Date(),
+                    },
+                });
+                await db_1.prisma.bed.update({
+                    where: { id: bed.id },
+                    data: { status: client_1.BedStatus.OCCUPIED },
+                });
+                console.log(`✅ Onboarded Student: ${st.name} into Bed ${bed.bedNumber}`);
+            }
+            // Seed sample gate logs (In and Out)
+            await db_1.prisma.gateLog.create({
+                data: {
+                    propertyId: property.id,
+                    userId: existing.id,
+                    studentName: st.name,
+                    roomNumber: bed?.room?.roomNumber || '101',
+                    type: 'EXIT',
+                    reason: 'College / Classes',
+                    destination: 'PES University Campus',
+                    isLate: false,
+                    loggedBy: 'Main Gate QR',
+                },
+            });
+            await db_1.prisma.gateLog.create({
+                data: {
+                    propertyId: property.id,
+                    userId: existing.id,
+                    studentName: st.name,
+                    roomNumber: bed?.room?.roomNumber || '101',
+                    type: 'ENTRY',
+                    reason: 'Return from Evening Study',
+                    destination: 'PES University Library',
+                    isLate: false,
+                    loggedBy: 'Main Gate QR',
+                },
+            });
+            // Seed sample complaint
+            await db_1.prisma.complaint.create({
                 data: {
                     ownerId: owner.id,
                     propertyId: property.id,
-                    tenantId: tenantProfile.id,
-                    bedId: bed.id,
-                    monthlyRent: 8500,
-                    securityDeposit: 10000,
-                    status: client_1.StayStatus.ACTIVE,
-                    startDate: new Date(),
+                    title: 'Geyser heating takes long time',
+                    description: 'The hot water geyser in bathroom takes more than 30 mins to heat up.',
+                    category: 'Plumbing / Electrical',
+                    priority: 'MEDIUM',
+                    status: client_1.ComplaintStatus.OPEN,
                 },
             });
-            await db_1.prisma.bed.update({
-                where: { id: bed.id },
-                data: { status: client_1.BedStatus.OCCUPIED },
+            // Seed sample leave request
+            await db_1.prisma.leaveRequest.create({
+                data: {
+                    studentId: existing.id,
+                    propertyId: property.id,
+                    startDate: new Date(Date.now() + 86400000),
+                    endDate: new Date(Date.now() + 86400000 * 4),
+                    reason: 'Family event in hometown',
+                    status: 'APPROVED',
+                },
             });
-            console.log(`✅ Onboarded Student: ${student.fullName} into Room 101, Bed ${bed.bedNumber}`);
+            // Seed mess wallet & order
+            await db_1.prisma.messWallet.upsert({
+                where: { tenantId: existing.id },
+                update: { balance: 150000 },
+                create: { tenantId: existing.id, balance: 150000 },
+            });
+            console.log(`✅ Created Student user: ${st.email} (Password: ${st.pass})`);
         }
-        // Seed sample gate log
-        await db_1.prisma.gateLog.create({
-            data: {
-                propertyId: property.id,
-                userId: student.id,
-                studentName: student.fullName,
-                roomNumber: '101',
-                type: 'ENTRY',
-                reason: 'College / Classes',
-                destination: 'PES University Campus',
-                isLate: false,
-                loggedBy: 'Main Gate QR',
-            },
-        });
-        // Seed sample complaint
-        await db_1.prisma.complaint.create({
-            data: {
-                ownerId: owner.id,
-                propertyId: property.id,
-                title: 'Geyser heating takes long time',
-                description: 'The hot water geyser in Room 101 bathroom takes more than 30 mins to heat up.',
-                category: 'Plumbing / Electrical',
-                priority: 'MEDIUM',
-                status: client_1.ComplaintStatus.OPEN,
-            },
-        });
-        console.log(`✅ Created Student user: ${studentEmail} (Password: Student@123456)`);
-        console.log(`✅ Created Parent user: parent@smartpg.com (Password: Parent@123456)`);
+        if (!student)
+            student = existing;
     }
-    // 9. Seed Support Ticket
+    // 9. Seed Food Menu, Stock Items & Staff Tasks
+    if (owner && property) {
+        const defaultMenu = {
+            Monday: { breakfast: 'Poha & Tea', lunch: 'Roti, Paneer Masala, Rice, Dal', dinner: 'Chapati, Mix Veg, Chawal, Kheer' },
+            Tuesday: { breakfast: 'Idli Sambar', lunch: 'Roti, Aloo Gobi, Rice, Dal Fry', dinner: 'Paratha, Egg Curry / Paneer, Rice' },
+            Wednesday: { breakfast: 'Aloo Paratha', lunch: 'Roti, Chana Masala, Rice, Curd', dinner: 'Veg Biryani, Raita, Gulab Jamun' },
+            Thursday: { breakfast: 'Upma & Coffee', lunch: 'Roti, Bhindi Masala, Rice, Dal', dinner: 'Roti, Dal Tadka, Jeera Rice' },
+            Friday: { breakfast: 'Puri Bhaji', lunch: 'Roti, Rajma, Rice, Salad', dinner: 'Roti, Paneer Butter Masala, Rice' },
+            Saturday: { breakfast: 'Bread Butter / Omelette', lunch: 'Roti, Kadhi Pakoda, Rice', dinner: 'Special South Indian Meal' },
+            Sunday: { breakfast: 'Masala Dosa', lunch: 'Veg / Chicken Dum Biryani', dinner: 'Roti, Choice Veg, Rice, Ice Cream' },
+        };
+        await db_1.prisma.foodMenu.upsert({
+            where: { ownerId: owner.id },
+            update: { weekMenuJson: JSON.stringify(defaultMenu) },
+            create: { ownerId: owner.id, weekMenuJson: JSON.stringify(defaultMenu) },
+        });
+        console.log('✅ Seeded Food Menu for Sunshine Luxury PG');
+        // Kitchen Stock Items
+        const stockItems = [
+            { itemName: 'Basmati Rice', category: 'Grocery', currentQuantity: 45, unit: 'kg', minThreshold: 10 },
+            { itemName: 'Wheat Flour (Atta)', category: 'Grocery', currentQuantity: 60, unit: 'kg', minThreshold: 15 },
+            { itemName: 'Cooking Sunflower Oil', category: 'Grocery', currentQuantity: 8, unit: 'liters', minThreshold: 10 },
+            { itemName: 'Paneer Fresh', category: 'Dairy', currentQuantity: 5, unit: 'kg', minThreshold: 3 },
+            { itemName: 'Fresh Milk', category: 'Dairy', currentQuantity: 20, unit: 'liters', minThreshold: 5 },
+        ];
+        for (const item of stockItems) {
+            await db_1.prisma.stockItem.create({
+                data: {
+                    propertyId: property.id,
+                    itemName: item.itemName,
+                    category: item.category,
+                    currentQuantity: item.currentQuantity,
+                    unit: item.unit,
+                    minThreshold: item.minThreshold,
+                },
+            });
+        }
+        console.log('✅ Seeded 5 Kitchen Inventory Stock Items');
+        // Staff Tasks
+        const staffTasks = [
+            { title: 'Prepare Dinner for 50 residents', description: 'Vegetarian and non-vegetarian meals', priority: 'HIGH', status: 'IN_PROGRESS' },
+            { title: 'Sanitize Dining Tables & Kitchen', description: 'Deep clean all cooking counters', priority: 'MEDIUM', status: 'COMPLETED' },
+            { title: 'Re-stock Rice and Cooking Oil', description: 'Purchase stock from local distributor', priority: 'HIGH', status: 'PENDING' },
+        ];
+        for (const t of staffTasks) {
+            await db_1.prisma.staffTask.create({
+                data: {
+                    propertyId: property.id,
+                    assignedTo: manager.id,
+                    title: t.title,
+                    description: t.description,
+                    priority: t.priority,
+                    status: t.status,
+                },
+            });
+        }
+        console.log('✅ Seeded 3 Staff Tasks');
+    }
+    // 10. Seed Support Ticket
     const ticket = await db_1.prisma.supportTicket.findFirst();
     if (!ticket) {
         await db_1.prisma.supportTicket.create({
@@ -340,7 +464,7 @@ async function main() {
                 description: 'We would like to configure automatic WhatsApp alerts to parents when residents scan the QR code.',
                 priority: 'MEDIUM',
                 status: 'OPEN',
-                createdBy: ownerEmail,
+                createdBy: owner?.email || 'owner@smartpg.com',
             },
         });
         console.log('✅ Seeded sample support ticket');

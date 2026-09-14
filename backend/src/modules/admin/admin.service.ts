@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs';
 import { prisma } from '../../db';
-import { UserRole, BedStatus, StayStatus, ComplaintStatus, PropertyType, RoomType, ComplaintPriority } from '@prisma/client';
+import { UserRole, BedStatus, StayStatus, ComplaintStatus, PropertyType, RoomType, ComplaintPriority, VerificationStatus } from '@prisma/client';
 
 export class AdminService {
   // ==========================================
@@ -15,7 +15,24 @@ export class AdminService {
 
     const propertyIds = properties.map(p => p.id);
 
-    const [totalBeds, occupiedBeds, totalTenants, openComplaints, recentGateLogs, recentStays] = await Promise.all([
+    const [
+      totalRooms,
+      totalBeds,
+      occupiedBeds,
+      totalTenants,
+      openComplaints,
+      staffPresent,
+      recentGateLogs,
+      recentStays,
+      expensesAggregate,
+      expensesByCategory,
+      latestEnquiriesRaw,
+      vacantBedsRaw,
+      defaulterInvoices
+    ] = await Promise.all([
+      prisma.room.count({
+        where: { floor: { propertyId: { in: propertyIds } } },
+      }),
       prisma.bed.count({
         where: { room: { floor: { propertyId: { in: propertyIds } } } },
       }),
@@ -38,6 +55,9 @@ export class AdminService {
           status: { in: [ComplaintStatus.OPEN, ComplaintStatus.IN_PROGRESS] },
         },
       }),
+      prisma.staffAssignment.count({
+        where: { propertyId: { in: propertyIds } },
+      }),
       prisma.gateLog.findMany({
         where: { propertyId: { in: propertyIds } },
         orderBy: { createdAt: 'desc' },
@@ -53,20 +73,223 @@ export class AdminService {
         orderBy: { createdAt: 'desc' },
         take: 5,
       }),
+      prisma.expense.aggregate({
+        where: { propertyId: { in: propertyIds } },
+        _sum: { amount: true },
+      }),
+      prisma.expense.groupBy({
+        by: ['category'],
+        where: { propertyId: { in: propertyIds } },
+        _sum: { amount: true },
+      }),
+      prisma.enquiry.findMany({
+        where: { propertyId: { in: propertyIds } },
+        include: { property: true },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      }),
+      prisma.bed.findMany({
+        where: {
+          status: BedStatus.VACANT,
+          room: { floor: { propertyId: { in: propertyIds } } },
+        },
+        include: {
+          room: {
+            include: {
+              floor: {
+                include: { property: true },
+              },
+            },
+          },
+        },
+        take: 10,
+      }),
+      prisma.invoice.findMany({
+        where: {
+          ownerId,
+          ...(propertyId ? { propertyId } : {}),
+          status: { in: ['ISSUED', 'OVERDUE', 'PARTIALLY_PAID'] as any },
+        },
+        include: {
+          stay: {
+            include: {
+              tenant: { include: { user: true } },
+              bed: { include: { room: true } },
+              property: true,
+            },
+          },
+        },
+        take: 10,
+      }),
     ]);
 
+    // Calculate monthly revenue from active stays
+    const activeStays = await prisma.tenantStay.findMany({
+      where: {
+        ownerId,
+        status: { in: [StayStatus.ACTIVE, StayStatus.CHECKED_IN, StayStatus.NOTICE_PERIOD] },
+        ...(propertyId ? { propertyId } : {}),
+      },
+      select: { monthlyRent: true },
+    });
+
+    const estimatedMonthlyRevenue = activeStays.reduce((sum, s) => sum + (s.monthlyRent || 0), 0);
+
+    // Invoices breakdown
+    const invoices = await prisma.invoice.findMany({
+      where: {
+        ownerId,
+        ...(propertyId ? { propertyId } : {}),
+      },
+      select: { totalAmount: true, paidAmount: true, status: true, billingMonth: true, dueDate: true },
+    });
+
+    const totalCollected = invoices.reduce((sum, inv) => sum + (inv.paidAmount || 0), 0);
+    const pendingRent = invoices.reduce((sum, inv) => sum + Math.max(0, inv.totalAmount - (inv.paidAmount || 0)), 0);
+    const rentTarget = invoices.reduce((sum, inv) => sum + (inv.totalAmount || 0), 0);
+    const totalExpenses = (expensesAggregate._sum.amount || 0) / 100; // In Rupees
+
+    // Real-time operational counters scoped to the selected property / owner
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const [todayCheckins, todayCheckouts, pendingVisitors, activeSos, maintenanceOpen, maintenanceTotal] = await Promise.all([
+      prisma.tenantStay.count({
+        where: {
+          ownerId,
+          ...(propertyId ? { propertyId } : {}),
+          status: { in: [StayStatus.ACTIVE, StayStatus.CHECKED_IN] },
+          startDate: { gte: todayStart },
+        },
+      }),
+      prisma.tenantStay.count({
+        where: {
+          ownerId,
+          ...(propertyId ? { propertyId } : {}),
+          status: StayStatus.CHECKED_OUT,
+          actualEndDate: { gte: todayStart },
+        },
+      }),
+      prisma.visitorLog.count({
+        where: {
+          propertyId: { in: propertyIds },
+          checkOutTime: null,
+        },
+      }),
+      prisma.sOSAlert.count({
+        where: {
+          propertyId: { in: propertyIds },
+          status: { in: ['TRIGGERED', 'ACKNOWLEDGED'] as any },
+        },
+      }),
+      prisma.maintenanceContract.count({
+        where: { ownerId, status: 'ACTIVE' },
+      }),
+      prisma.maintenanceContract.count({
+        where: { ownerId },
+      }),
+    ]);
+
+    // Real housekeeping counters derived from staff tasks (clean / sanitize / housekeep / hygiene)
+    const staffTasksRaw = await prisma.staffTask.findMany({
+      where: { propertyId: { in: propertyIds } },
+      select: { title: true, description: true, status: true },
+    });
+    const HK_PATTERN = /clean|sanitiz|housekeep|hygiene/i;
+    const hkTasks = staffTasksRaw.filter(
+      t => HK_PATTERN.test(t.title || '') || HK_PATTERN.test(t.description || '')
+    );
+    const housekeepingTotal = hkTasks.length;
+    const housekeepingDone = hkTasks.filter(t => String(t.status).toUpperCase() === 'COMPLETED').length;
+
+    // Real monthly collection vs pending series derived from invoice billing months
+    const monthOrder: string[] = [];
+    const monthSeries = new Map<string, { collected: number; pending: number }>();
+    invoices.forEach(inv => {
+      const month = inv.billingMonth || (inv.dueDate ? inv.dueDate.toISOString().slice(0, 7) : '');
+      if (!month) return;
+      if (!monthSeries.has(month)) {
+        monthSeries.set(month, { collected: 0, pending: 0 });
+        monthOrder.push(month);
+      }
+      const agg = monthSeries.get(month)!;
+      agg.collected += inv.paidAmount || 0;
+      agg.pending += Math.max(0, inv.totalAmount - (inv.paidAmount || 0));
+    });
+    const collectionVsPending = monthOrder.slice(-6).map(month => {
+      const agg = monthSeries.get(month)!;
+      const parts = month.split('-');
+      const shortMonth = parts[0] && parts[1] ? new Date(Number(parts[0]), Number(parts[1]) - 1, 1).toLocaleString('en', { month: 'short' }) : month;
+      return { month: shortMonth, collected: Math.round(agg.collected / 100), pending: Math.round(agg.pending / 100) };
+    });
+
     const occupancyRate = totalBeds > 0 ? Math.round((occupiedBeds / totalBeds) * 100) : 0;
-    const estimatedMonthlyRevenue = occupiedBeds * 8500;
+
+    // Occupancy per property
+    const occupancyByProperty = await Promise.all(
+      properties.map(async p => {
+        const bedsInProp = await prisma.bed.count({
+          where: { room: { floor: { propertyId: p.id } } },
+        });
+        const occupiedInProp = await prisma.bed.count({
+          where: { status: BedStatus.OCCUPIED, room: { floor: { propertyId: p.id } } },
+        });
+        return {
+          name: p.name,
+          occupied: occupiedInProp,
+          total: bedsInProp,
+        };
+      })
+    );
 
     return {
       totalProperties: properties.length,
+      totalRooms,
       totalBeds,
       occupiedBeds,
       vacantBeds: Math.max(0, totalBeds - occupiedBeds),
       occupancyRate,
       totalTenants,
       openComplaints,
+      staffPresent,
+      messRevenue: 0,
       estimatedMonthlyRevenue,
+      thisMonthCollection: totalCollected / 100, // In Rupees
+      totalCollected: totalCollected / 100,
+      pendingRent: pendingRent / 100,
+      totalExpenses,
+      netProfit: (totalCollected / 100) - totalExpenses,
+      expenseBreakdown: expensesByCategory.map(e => ({
+        category: e.category,
+        amount: (e._sum.amount || 0) / 100,
+      })),
+      occupancyByProperty,
+      collectionVsPending,
+      todayCheckins,
+      todayCheckouts,
+      pendingVisitors,
+      activeSos,
+      maintenanceOpen,
+      maintenanceTotal,
+      housekeepingDone,
+      housekeepingTotal,
+      rentTarget: rentTarget / 100,
+      defaulters: defaulterInvoices.map(inv => ({
+        name: inv.stay?.tenant?.user?.fullName || 'Tenant',
+        room: inv.stay?.bed?.room?.roomNumber || 'N/A',
+        amount: (inv.totalAmount - inv.paidAmount) / 100,
+        property: inv.stay?.property?.name || 'PG',
+      })),
+      vacantBedsList: vacantBedsRaw.map(b => ({
+        property: b.room?.floor?.property?.name || 'PG',
+        room: b.room?.roomNumber || 'N/A',
+        bed: b.bedNumber,
+      })),
+      latestEnquiries: latestEnquiriesRaw.map(e => ({
+        name: e.name,
+        date: e.createdAt.toISOString().split('T')[0],
+        status: e.isResolved ? 'Resolved' : 'Pending',
+        property: e.property?.name || 'PG',
+      })),
       recentGateLogs,
       recentStays: recentStays.map(s => ({
         id: s.id,
@@ -84,7 +307,7 @@ export class AdminService {
   // 2. PROPERTIES CRUD
   // ==========================================
   static async listProperties(ownerId: string) {
-    const properties = await prisma.property.findMany({
+    return prisma.property.findMany({
       where: { ownerId },
       include: {
         floors: {
@@ -104,173 +327,157 @@ export class AdminService {
       },
       orderBy: { createdAt: 'desc' },
     });
-
-    return properties.map(p => {
-      let bedCount = 0;
-      let occupiedCount = 0;
-      let roomCount = 0;
-
-      p.floors.forEach(f => {
-        roomCount += f.rooms.length;
-        f.rooms.forEach(r => {
-          bedCount += r.beds.length;
-          occupiedCount += r.beds.filter(b => b.status === BedStatus.OCCUPIED).length;
-        });
-      });
-
-      return {
-        id: p.id,
-        name: p.name,
-        slug: p.slug,
-        type: p.type,
-        address: p.address,
-        city: p.city,
-        state: p.state,
-        pincode: p.pincode,
-        contactPhone: p.contactPhone,
-        contactEmail: p.contactEmail,
-        amenities: typeof p.amenities === 'string' ? JSON.parse(p.amenities || '[]') : p.amenities,
-        images: typeof p.images === 'string' ? JSON.parse(p.images || '[]') : p.images,
-        rules: p.rules,
-        totalFloors: p.floors.length,
-        totalRooms: roomCount,
-        totalBeds: bedCount,
-        occupiedBeds: occupiedCount,
-        vacantBeds: Math.max(0, bedCount - occupiedCount),
-        occupancyRate: bedCount > 0 ? Math.round((occupiedCount / bedCount) * 100) : 0,
-        staffCount: p.staff.length,
-        createdAt: p.createdAt,
-      };
-    });
   }
 
-  static async getPropertyDetail(propertyId: string, ownerId: string) {
-    const property = await prisma.property.findFirst({
-      where: { id: propertyId, ownerId },
+  static async getPropertyDetail(id: string, ownerId: string) {
+    return prisma.property.findFirst({
+      where: { id, ownerId },
       include: {
         floors: {
           include: {
             rooms: {
-              include: {
-                beds: true,
-              },
+              include: { beds: true },
             },
           },
         },
-        staff: {
-          include: {
-            user: true,
-          },
-        },
+        staff: { include: { user: true } },
       },
     });
-
-    if (!property) return null;
-
-    let bedCount = 0;
-    let occupiedCount = 0;
-    let roomCount = 0;
-
-    property.floors.forEach(f => {
-      roomCount += f.rooms.length;
-      f.rooms.forEach(r => {
-        bedCount += r.beds.length;
-        occupiedCount += r.beds.filter(b => b.status === BedStatus.OCCUPIED).length;
-      });
-    });
-
-    return {
-      ...property,
-      amenities: typeof property.amenities === 'string' ? JSON.parse(property.amenities || '[]') : property.amenities,
-      images: typeof property.images === 'string' ? JSON.parse(property.images || '[]') : property.images,
-      totalFloors: property.floors.length,
-      totalRooms: roomCount,
-      totalBeds: bedCount,
-      occupiedBeds: occupiedCount,
-      vacantBeds: Math.max(0, bedCount - occupiedCount),
-    };
   }
 
-  static async createProperty(data: {
-    ownerId: string;
+  static async createProperty(ownerId: string, data: {
     name: string;
-    type: PropertyType;
+    type?: PropertyType;
     address: string;
     city: string;
     state?: string;
     pincode?: string;
     contactPhone: string;
     contactEmail: string;
+    floorsCount?: number;
     amenities?: string[];
     rules?: string;
-    floorsCount?: number;
+    defaultDeposit?: number;
+    bedRent?: number;
+    generateRooms?: boolean;
+    singleRoomsCount?: number;
+    doubleRoomsCount?: number;
+    tripleRoomsCount?: number;
   }) {
-    const slug = data.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-' + Math.random().toString(36).substring(2, 6);
+    const slug = `${data.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now()}`;
+    const floorsCount = Math.max(1, Number(data.floorsCount) || 2);
 
     const property = await prisma.property.create({
       data: {
-        ownerId: data.ownerId,
+        ownerId,
         name: data.name,
         slug,
         type: data.type || PropertyType.BOYS_PG,
         address: data.address,
         city: data.city,
-        state: data.state || 'State',
+        state: data.state || 'Karnataka',
         pincode: data.pincode || '560001',
         contactPhone: data.contactPhone,
         contactEmail: data.contactEmail,
-        amenities: JSON.stringify(data.amenities || ['WiFi', 'Power Backup', 'CCTV', 'Meals']),
+        amenities: JSON.stringify(data.amenities || ['WiFi', 'Housekeeping', 'CCTV']),
         images: JSON.stringify([]),
-        rules: data.rules || 'Curfew time: 10:00 PM. No smoking on premises.',
+        rules: data.rules || null,
       },
     });
 
-    // Auto-create initial floors if specified
-    const floorsCount = data.floorsCount || 2;
-    for (let i = 1; i <= floorsCount; i++) {
-      await prisma.floor.create({
+    // Automatically create Floors, Rooms, and Beds.
+    // If the UI requested a custom room mix (single/double/triple), distribute it across floors;
+    // otherwise fall back to the legacy 2 double-sharing rooms per floor.
+    const singles = Math.max(0, Number(data.singleRoomsCount) || 0);
+    const doubles = Math.max(0, Number(data.doubleRoomsCount) || 0);
+    const triples = Math.max(0, Number(data.tripleRoomsCount) || 0);
+    const wantsCustomRooms = Boolean(data.generateRooms) && (singles + doubles + triples > 0);
+
+    const roomPlan: { type: RoomType; capacity: number }[] = [];
+    if (wantsCustomRooms) {
+      for (let i = 0; i < singles; i++) roomPlan.push({ type: RoomType.SINGLE, capacity: 1 });
+      for (let i = 0; i < doubles; i++) roomPlan.push({ type: RoomType.DOUBLE_SHARING, capacity: 2 });
+      for (let i = 0; i < triples; i++) roomPlan.push({ type: RoomType.TRIPLE_SHARING, capacity: 3 });
+    }
+
+    const roomsPerFloor = wantsCustomRooms ? Math.ceil(roomPlan.length / floorsCount) : 2;
+    const rentBase = Number(data.bedRent) || Number(data.defaultDeposit) || 8500;
+    const rentPaise = Math.max(0, rentBase) * 100; // Rupees -> Paise
+
+    for (let f = 1; f <= floorsCount; f++) {
+      const floor = await prisma.floor.create({
         data: {
           propertyId: property.id,
-          floorNumber: i,
-          name: `Floor ${i}`,
+          floorNumber: f,
+          name: `Floor ${f}`,
         },
       });
+
+      const roomsThisFloor = wantsCustomRooms
+        ? roomPlan.slice((f - 1) * roomsPerFloor, f * roomsPerFloor)
+        : Array.from({ length: 2 }, () => ({ type: RoomType.DOUBLE_SHARING, capacity: 2 }));
+
+      let rIdx = 1;
+      for (const plan of roomsThisFloor) {
+        const roomNumber = `${f}${String(rIdx).padStart(2, '0')}`;
+        const room = await prisma.room.create({
+          data: {
+            floorId: floor.id,
+            roomNumber,
+            type: plan.type,
+            monthlyRent: rentPaise,
+          },
+        });
+        rIdx++;
+
+        for (let b = 1; b <= plan.capacity; b++) {
+          await prisma.bed.create({
+            data: {
+              roomId: room.id,
+              bedNumber: `B-${b}`,
+              status: BedStatus.VACANT,
+              monthlyRent: rentPaise,
+            },
+          });
+        }
+      }
     }
 
     await prisma.auditLog.create({
       data: {
-        actorId: data.ownerId,
-        ownerId: data.ownerId,
+        actorId: ownerId,
+        ownerId,
         propertyId: property.id,
         action: 'PROPERTY_CREATED',
         entityType: 'Property',
         entityId: property.id,
-        details: JSON.stringify({ name: property.name, city: property.city }),
+        details: JSON.stringify({ name: property.name }),
       },
     });
 
     return property;
   }
 
-  static async updateProperty(propertyId: string, ownerId: string, data: Partial<any>) {
-    return prisma.property.update({
-      where: { id: propertyId },
+  static async updateProperty(id: string, ownerId: string, data: any) {
+    const property = await prisma.property.updateMany({
+      where: { id, ownerId },
       data: {
-        ...(data.name ? { name: data.name } : {}),
-        ...(data.type ? { type: data.type } : {}),
-        ...(data.address ? { address: data.address } : {}),
-        ...(data.city ? { city: data.city } : {}),
-        ...(data.contactPhone ? { contactPhone: data.contactPhone } : {}),
-        ...(data.contactEmail ? { contactEmail: data.contactEmail } : {}),
+        name: data.name,
+        address: data.address,
+        city: data.city,
+        contactPhone: data.contactPhone,
+        contactEmail: data.contactEmail,
+        rules: data.rules,
         ...(data.amenities ? { amenities: JSON.stringify(data.amenities) } : {}),
-        ...(data.rules !== undefined ? { rules: data.rules } : {}),
       },
     });
+
+    return property;
   }
 
-  static async deleteProperty(propertyId: string, ownerId: string) {
-    return prisma.property.delete({
-      where: { id: propertyId },
+  static async deleteProperty(id: string, ownerId: string) {
+    return prisma.property.deleteMany({
+      where: { id, ownerId },
     });
   }
 
@@ -278,79 +485,55 @@ export class AdminService {
   // 3. ROOMS & BEDS
   // ==========================================
   static async listRooms(propertyId: string) {
-    const rooms = await prisma.room.findMany({
+    return prisma.room.findMany({
       where: { floor: { propertyId } },
       include: {
+        beds: true,
         floor: true,
-        beds: {
-          include: {
-            stays: {
-              where: { status: { in: [StayStatus.ACTIVE, StayStatus.CHECKED_IN] } },
-              include: {
-                tenant: { include: { user: true } },
-              },
-            },
-          },
-        },
       },
       orderBy: { roomNumber: 'asc' },
-    });
-
-    return rooms.map(r => {
-      const totalBeds = r.beds.length;
-      const occupiedBeds = r.beds.filter(b => b.status === BedStatus.OCCUPIED).length;
-
-      return {
-        id: r.id,
-        floorId: r.floorId,
-        floorNumber: r.floor.floorNumber,
-        floorName: r.floor.name,
-        roomNumber: r.roomNumber,
-        type: r.type,
-        monthlyRent: r.monthlyRent,
-        totalBeds,
-        occupiedBeds,
-        vacantBeds: Math.max(0, totalBeds - occupiedBeds),
-        status: occupiedBeds === totalBeds && totalBeds > 0 ? 'Full' : occupiedBeds > 0 ? 'Partial' : 'Available',
-        beds: r.beds.map(b => ({
-          id: b.id,
-          bedNumber: b.bedNumber,
-          status: b.status,
-          monthlyRent: b.monthlyRent,
-          currentTenant: b.stays[0]?.tenant?.user ? {
-            id: b.stays[0].tenant.user.id,
-            name: b.stays[0].tenant.user.fullName,
-            phone: b.stays[0].tenant.user.phone,
-          } : null,
-        })),
-      };
     });
   }
 
   static async createRoom(data: {
-    floorId: string;
+    propertyId: string;
+    floorNumber?: number;
     roomNumber: string;
-    type: RoomType;
-    monthlyRent: number;
-    bedCount: number;
+    type?: RoomType;
+    monthlyRent?: number;
+    bedCount?: number;
   }) {
+    let floor = await prisma.floor.findFirst({
+      where: { propertyId: data.propertyId, floorNumber: data.floorNumber || 1 },
+    });
+
+    if (!floor) {
+      floor = await prisma.floor.create({
+        data: {
+          propertyId: data.propertyId,
+          floorNumber: data.floorNumber || 1,
+          name: `Floor ${data.floorNumber || 1}`,
+        },
+      });
+    }
+
     const room = await prisma.room.create({
       data: {
-        floorId: data.floorId,
+        floorId: floor.id,
         roomNumber: data.roomNumber,
         type: data.type || RoomType.DOUBLE_SHARING,
-        monthlyRent: data.monthlyRent || 8500,
+        monthlyRent: (data.monthlyRent || 8500) * 100, // convert to Paise
       },
     });
 
-    const count = data.bedCount || 2;
-    for (let i = 1; i <= count; i++) {
+    const bedCount = data.bedCount || 2;
+    for (let b = 1; b <= bedCount; b++) {
       await prisma.bed.create({
         data: {
           roomId: room.id,
-          bedNumber: `B-${i}`,
+          bedNumber: `B-${b}`,
           status: BedStatus.VACANT,
-          monthlyRent: data.monthlyRent || 8500,
+          monthlyRent: (data.monthlyRent || 8500) * 100,
         },
       });
     }
@@ -366,93 +549,7 @@ export class AdminService {
   }
 
   // ==========================================
-  // 4. STAFF / MANAGERS MANAGEMENT
-  // ==========================================
-  static async listStaff(ownerId: string) {
-    const staff = await prisma.user.findMany({
-      where: {
-        ownerId,
-        role: { in: [UserRole.MANAGER, UserRole.STAFF] },
-      },
-      include: {
-        staffAssignments: {
-          include: { property: true },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    return staff.map(s => ({
-      id: s.id,
-      name: s.fullName,
-      email: s.email,
-      phone: s.phone,
-      role: s.role.toLowerCase(),
-      status: s.isSuspended ? 'Suspended' : s.isActive ? 'Active' : 'Inactive',
-      assignedProperties: s.staffAssignments.map(a => ({
-        id: a.property.id,
-        name: a.property.name,
-      })),
-      createdAt: s.createdAt,
-    }));
-  }
-
-  static async createStaff(data: {
-    ownerId: string;
-    fullName: string;
-    email: string;
-    phone: string;
-    password?: string;
-    role: UserRole;
-    propertyIds?: string[];
-  }) {
-    const existing = await prisma.user.findFirst({
-      where: { OR: [{ email: data.email }, { phone: data.phone }] },
-    });
-
-    if (existing) {
-      throw new Error('A user with this email or phone already exists');
-    }
-
-    const defaultPass = data.password || 'Staff@123456';
-    const passwordHash = await bcrypt.hash(defaultPass, 10);
-
-    const user = await prisma.user.create({
-      data: {
-        ownerId: data.ownerId,
-        fullName: data.fullName,
-        email: data.email.trim().toLowerCase(),
-        phone: data.phone.trim(),
-        passwordHash,
-        role: data.role || UserRole.MANAGER,
-        mustChangePassword: true,
-      },
-    });
-
-    if (data.propertyIds && data.propertyIds.length > 0) {
-      for (const propId of data.propertyIds) {
-        await prisma.staffAssignment.create({
-          data: {
-            userId: user.id,
-            propertyId: propId,
-            permissions: JSON.stringify(['all']),
-          },
-        });
-      }
-    }
-
-    return {
-      id: user.id,
-      name: user.fullName,
-      email: user.email,
-      phone: user.phone,
-      role: user.role.toLowerCase(),
-      tempPassword: defaultPass,
-    };
-  }
-
-  // ==========================================
-  // 5. TENANTS / STUDENTS ONBOARDING
+  // 4. TENANTS & ONBOARDING
   // ==========================================
   static async listTenants(ownerId: string, propertyId?: string) {
     const stays = await prisma.tenantStay.findMany({
@@ -462,153 +559,175 @@ export class AdminService {
       },
       include: {
         tenant: {
-          include: {
-            user: true,
-            parentProfile: {
-              include: { user: true },
-            },
-          },
+          include: { user: true, parentProfile: { include: { user: true } } },
         },
+        bed: { include: { room: true } },
         property: true,
-        bed: {
-          include: { room: true },
-        },
       },
       orderBy: { createdAt: 'desc' },
     });
 
     return stays.map(s => ({
-      id: s.id,
-      tenantProfileId: s.tenantId,
+      id: s.tenant.id,
       userId: s.tenant.userId,
+      stayId: s.id,
       name: s.tenant.user.fullName,
       email: s.tenant.user.email,
       phone: s.tenant.user.phone,
       propertyId: s.propertyId,
       propertyName: s.property.name,
-      roomId: s.bed.roomId,
       roomNumber: s.bed.room.roomNumber,
-      bedId: s.bedId,
       bedNumber: s.bed.bedNumber,
-      rentAmount: s.monthlyRent,
-      securityDeposit: s.securityDeposit,
+      monthlyRent: s.monthlyRent / 100,
+      securityDeposit: s.securityDeposit / 100,
       status: s.status,
-      checkInDate: s.startDate,
-      parentName: s.tenant.parentProfile?.user?.fullName || 'N/A',
-      parentPhone: s.tenant.parentProfile?.user?.phone || 'N/A',
+      startDate: s.startDate,
+      emergencyContactName: s.tenant.emergencyContactName,
+      emergencyContactPhone: s.tenant.emergencyContactPhone,
     }));
   }
 
-  static async onboardTenant(data: {
-    ownerId: string;
-    propertyId: string;
-    bedId: string;
+  static async onboardTenant(ownerId: string, data: {
     fullName: string;
     email: string;
     phone: string;
+    propertyId: string;
+    bedId: string;
     monthlyRent: number;
     securityDeposit: number;
-    parentName?: string;
-    parentPhone?: string;
+    startDate: string;
     emergencyContactName?: string;
     emergencyContactPhone?: string;
     permanentAddress?: string;
+    idProofType?: string;
     idProofNumber?: string;
-    checkInDate?: string;
   }) {
-    // 1. Create or Find Tenant User
-    let user = await prisma.user.findFirst({
+    const existingUser = await prisma.user.findFirst({
       where: { OR: [{ email: data.email }, { phone: data.phone }] },
     });
 
-    if (!user) {
-      const passwordHash = await bcrypt.hash('Student@123456', 10);
-      user = await prisma.user.create({
-        data: {
-          ownerId: data.ownerId,
-          fullName: data.fullName,
-          email: data.email.trim().toLowerCase(),
-          phone: data.phone.trim(),
-          passwordHash,
-          role: UserRole.STUDENT,
-          mustChangePassword: true,
-        },
-      });
+    if (existingUser) {
+      throw new Error('Email or Phone is already registered');
     }
 
-    // 2. Create or Find Parent Profile if parent info provided
-    let parentProfileId: string | undefined = undefined;
-    if (data.parentPhone) {
-      let parentUser = await prisma.user.findUnique({ where: { phone: data.parentPhone } });
-      if (!parentUser) {
-        const parentPass = await bcrypt.hash('Parent@123456', 10);
-        parentUser = await prisma.user.create({
-          data: {
-            ownerId: data.ownerId,
-            fullName: data.parentName || 'Parent',
-            email: `parent_${data.phone}@smartpg.com`,
-            phone: data.parentPhone,
-            passwordHash: parentPass,
-            role: UserRole.PARENT,
-            mustChangePassword: true,
-          },
-        });
-      }
+    const passwordHash = await bcrypt.hash('Student@123456', 10);
 
-      let parentProfile = await prisma.parentProfile.findUnique({ where: { userId: parentUser.id } });
-      if (!parentProfile) {
-        parentProfile = await prisma.parentProfile.create({
-          data: {
-            userId: parentUser.id,
-            relation: 'Parent / Guardian',
-            address: data.permanentAddress || 'Permanent Address',
-          },
-        });
-      }
-      parentProfileId = parentProfile.id;
-    }
-
-    // 3. Create Tenant Profile
-    let tenantProfile = await prisma.tenantProfile.findUnique({ where: { userId: user.id } });
-    if (!tenantProfile) {
-      tenantProfile = await prisma.tenantProfile.create({
-        data: {
-          userId: user.id,
-          emergencyContactName: data.emergencyContactName || data.parentName || 'Guardian',
-          emergencyContactPhone: data.emergencyContactPhone || data.parentPhone || data.phone,
-          permanentAddress: data.permanentAddress || 'Address',
-          idProofType: 'AADHAAR',
-          idProofNumber: data.idProofNumber || 'NA',
-          parentProfileId,
-        },
-      });
-    }
-
-    // 4. Create Tenant Stay
-    const stay = await prisma.tenantStay.create({
+    const user = await prisma.user.create({
       data: {
-        ownerId: data.ownerId,
-        propertyId: data.propertyId,
-        tenantId: tenantProfile.id,
-        bedId: data.bedId,
-        monthlyRent: data.monthlyRent || 8500,
-        securityDeposit: data.securityDeposit || 10000,
-        startDate: data.checkInDate ? new Date(data.checkInDate) : new Date(),
-        status: StayStatus.CHECKED_IN,
+        fullName: data.fullName,
+        email: data.email,
+        phone: data.phone,
+        passwordHash,
+        role: UserRole.STUDENT,
+        ownerId,
+        mustChangePassword: true,
       },
     });
 
-    // 5. Update Bed Status to Occupied
+    const tenantProfile = await prisma.tenantProfile.create({
+      data: {
+        userId: user.id,
+        emergencyContactName: data.emergencyContactName || 'Parent',
+        emergencyContactPhone: data.emergencyContactPhone || data.phone,
+        permanentAddress: data.permanentAddress || 'Address',
+        idProofType: data.idProofType || 'AADHAAR',
+        idProofNumber: data.idProofNumber || '123456789012',
+      },
+    });
+
+    const stay = await prisma.tenantStay.create({
+      data: {
+        ownerId,
+        propertyId: data.propertyId,
+        tenantId: tenantProfile.id,
+        bedId: data.bedId,
+        monthlyRent: data.monthlyRent * 100,
+        securityDeposit: data.securityDeposit * 100,
+        startDate: new Date(data.startDate || Date.now()),
+        status: StayStatus.ACTIVE,
+      },
+    });
+
     await prisma.bed.update({
       where: { id: data.bedId },
       data: { status: BedStatus.OCCUPIED },
     });
 
-    return stay;
+    await prisma.auditLog.create({
+      data: {
+        actorId: ownerId,
+        ownerId,
+        propertyId: data.propertyId,
+        action: 'TENANT_ONBOARDED',
+        entityType: 'TenantStay',
+        entityId: stay.id,
+        details: JSON.stringify({ name: user.fullName, email: user.email }),
+      },
+    });
+
+    return { user, tenantProfile, stay };
   }
 
   // ==========================================
-  // 6. COMPLAINTS & TICKETS
+  // 5. STAFF & TEAM
+  // ==========================================
+  static async listStaff(ownerId: string) {
+    const staffAssignments = await prisma.staffAssignment.findMany({
+      where: { property: { ownerId } },
+      include: {
+        user: true,
+        property: true,
+      },
+    });
+
+    return staffAssignments.map(s => ({
+      id: s.id,
+      userId: s.userId,
+      name: s.user.fullName,
+      email: s.user.email,
+      phone: s.user.phone,
+      role: s.user.role,
+      propertyId: s.propertyId,
+      propertyName: s.property.name,
+      createdAt: s.createdAt,
+    }));
+  }
+
+  static async createStaff(ownerId: string, data: {
+    fullName: string;
+    email: string;
+    phone: string;
+    role?: UserRole;
+    propertyId: string;
+  }) {
+    const passwordHash = await bcrypt.hash('Staff@123456', 10);
+    const role = data.role || UserRole.MANAGER;
+
+    const user = await prisma.user.create({
+      data: {
+        fullName: data.fullName,
+        email: data.email,
+        phone: data.phone,
+        passwordHash,
+        role,
+        ownerId,
+        mustChangePassword: true,
+      },
+    });
+
+    const assignment = await prisma.staffAssignment.create({
+      data: {
+        userId: user.id,
+        propertyId: data.propertyId,
+        permissions: JSON.stringify(['all']),
+      },
+    });
+
+    return { user, assignment };
+  }
+
+  // ==========================================
+  // 6. COMPLAINTS
   // ==========================================
   static async listComplaints(ownerId: string, propertyId?: string) {
     return prisma.complaint.findMany({
@@ -616,16 +735,34 @@ export class AdminService {
         ownerId,
         ...(propertyId ? { propertyId } : {}),
       },
-      include: {
-        property: true,
-      },
+      include: { property: true },
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  static async updateComplaintStatus(complaintId: string, status: ComplaintStatus, resolutionNotes?: string) {
+  static async createComplaint(ownerId: string, data: {
+    propertyId: string;
+    title: string;
+    description: string;
+    category?: string;
+    priority?: ComplaintPriority;
+  }) {
+    return prisma.complaint.create({
+      data: {
+        ownerId,
+        propertyId: data.propertyId,
+        title: data.title,
+        description: data.description,
+        category: data.category || 'GENERAL',
+        priority: data.priority || ComplaintPriority.MEDIUM,
+        status: ComplaintStatus.OPEN,
+      },
+    });
+  }
+
+  static async updateComplaintStatus(id: string, status: ComplaintStatus) {
     return prisma.complaint.update({
-      where: { id: complaintId },
+      where: { id },
       data: {
         status,
         ...(status === ComplaintStatus.RESOLVED ? { resolvedAt: new Date() } : {}),
@@ -634,42 +771,106 @@ export class AdminService {
   }
 
   // ==========================================
-  // 7. GATE LOGS & ATTENDANCE
+  // 7. GATE LOGS & NOTICES & MAINTENANCE & FOOD & FINANCE
   // ==========================================
   static async listGateLogs(propertyId: string) {
     return prisma.gateLog.findMany({
       where: { propertyId },
-      orderBy: { createdAt: 'desc' },
-      take: 100,
+      orderBy: { timestamp: 'desc' },
+      take: 50,
     });
   }
 
   static async addGateLog(data: {
     propertyId: string;
     userId: string;
-    studentName?: string;
-    roomNumber?: string;
-    type: 'ENTRY' | 'EXIT';
-    reason?: string;
-    destination?: string;
-    expectedReturnTime?: string;
-    isLate?: boolean;
-    loggedBy?: string;
+    entryType: string;
+    passCode?: string;
   }) {
     return prisma.gateLog.create({
       data: {
         propertyId: data.propertyId,
         userId: data.userId,
-        studentName: data.studentName || 'Resident',
-        roomNumber: data.roomNumber || '',
-        type: data.type,
-        reason: data.reason || (data.type === 'ENTRY' ? 'Returned to PG' : 'Outing'),
-        destination: data.destination || '',
-        expectedReturnTime: data.expectedReturnTime || '',
-        isLate: data.isLate || false,
-        loggedBy: data.loggedBy || 'QR Scanner',
+        entryType: data.entryType,
+        passCode: data.passCode,
       },
     });
   }
-}
 
+  static async listNotices(ownerId: string) {
+    return prisma.auditLog.findMany({
+      where: { ownerId, action: 'NOTICE_BROADCAST' },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  static async createNotice(ownerId: string, data: { title: string; message: string; propertyId?: string }) {
+    return prisma.auditLog.create({
+      data: {
+        ownerId,
+        propertyId: data.propertyId,
+        action: 'NOTICE_BROADCAST',
+        entityType: 'Notice',
+        entityId: ownerId,
+        details: JSON.stringify({ title: data.title, message: data.message }),
+      },
+    });
+  }
+
+  static async deleteNotice(id: string) {
+    return prisma.auditLog.delete({ where: { id } });
+  }
+
+  static async getFoodMenu(ownerId: string) {
+    const menu = await prisma.foodMenu.findUnique({
+      where: { ownerId },
+    });
+    return menu ? JSON.parse(menu.weekMenuJson) : null;
+  }
+
+  static async updateFoodMenu(ownerId: string, weekMenuJson: string) {
+    return prisma.foodMenu.upsert({
+      where: { ownerId },
+      update: { weekMenuJson },
+      create: { ownerId, weekMenuJson },
+    });
+  }
+
+  static async listMaintenance(ownerId: string) {
+    return prisma.expense.findMany({
+      where: { ownerId, category: 'REPAIR' },
+      orderBy: { expenseDate: 'desc' },
+    });
+  }
+
+  static async createMaintenance(ownerId: string, data: { propertyId: string; title: string; amount: number }) {
+    return prisma.expense.create({
+      data: {
+        ownerId,
+        propertyId: data.propertyId,
+        category: 'REPAIR',
+        title: data.title,
+        amount: data.amount * 100,
+        expenseDate: new Date(),
+      },
+    });
+  }
+
+  static async getFinanceSummary(ownerId: string) {
+    const invoices = await prisma.invoice.findMany({ where: { ownerId } });
+    const expenses = await prisma.expense.findMany({ where: { ownerId } });
+
+    const totalInvoiced = invoices.reduce((sum, i) => sum + i.totalAmount, 0) / 100;
+    const totalCollected = invoices.reduce((sum, i) => sum + i.paidAmount, 0) / 100;
+    const pendingRent = Math.max(0, totalInvoiced - totalCollected);
+    const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0) / 100;
+
+    return {
+      totalInvoiced,
+      totalCollected,
+      pendingRent,
+      totalExpenses,
+      netProfit: totalCollected - totalExpenses,
+    };
+  }
+}

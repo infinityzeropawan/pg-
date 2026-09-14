@@ -53,10 +53,10 @@ export default function SuperAdminDashboardPage() {
               <PlusCircle className="w-4 h-4 mr-2" />
               New Owner
             </Link>
-            <button className="btn-outline-white shadow-sm hover:-translate-y-0.5">
+            <Link href="/superadmin/analytics" className="btn-outline-white shadow-sm hover:-translate-y-0.5">
               <Server className="w-4 h-4 mr-2" />
               System Status
-            </button>
+            </Link>
           </div>
         </div>
       </div>

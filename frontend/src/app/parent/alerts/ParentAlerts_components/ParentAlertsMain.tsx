@@ -1,26 +1,27 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ShieldAlert, Bell, AlertTriangle, Filter, LogIn, LogOut, Info } from 'lucide-react';
+import { ShieldAlert, Bell, AlertTriangle, Filter, Info } from 'lucide-react';
 
 import { parentOperationsApi as api } from '@/app/parent/parent_lib/parent_api/ParentOperations';
-import { getSession } from '@/app/parent/parent_lib/parent_auth/ParentSession';
 
 export function ParentAlertsMain() {
-  const user = typeof window !== 'undefined' ? getSession() : null;
   const [alerts, setAlerts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
 
   useEffect(() => {
-    if (user?.id) {
-      const child = api.getLinkedChild(user.id);
-      if (child) {
-        setAlerts(api.getChildAlerts(child.id));
+    let isMounted = true;
+    api.getAlerts().then((data) => {
+      if (isMounted) {
+        setAlerts(Array.isArray(data) ? data : []);
+        setLoading(false);
       }
-    }
-    setLoading(false);
-  }, [user?.id]);
+    }).catch(() => {
+      if (isMounted) setLoading(false);
+    });
+    return () => { isMounted = false; };
+  }, []);
 
   const filteredAlerts = alerts.filter(a => {
     if (filter === 'all') return true;
@@ -117,10 +118,7 @@ export function ParentAlertsMain() {
                   </div>
                   
                   <p className="text-xs text-secondary mt-1">
-                    {alert.type === 'sos' && 'An emergency SOS was triggered from the student app. The PG Manager and Guards have been notified.'}
-                    {alert.type === 'late' && 'The student entered the premises after the designated night entry cutoff time (10:00 PM).'}
-                    {alert.type === 'gate' && 'Logged automatically via the PG Main Gate QR attendance scanner.'}
-                    {alert.type === 'due' && 'A new rent invoice has been generated and is pending payment.'}
+                    {alert.description || alert.title}
                   </p>
                 </div>
               </div>

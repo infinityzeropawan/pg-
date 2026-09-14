@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.addGateLog = exports.listGateLogs = exports.updateComplaintStatus = exports.listComplaints = exports.onboardTenant = exports.listTenants = exports.createStaff = exports.listStaff = exports.updateBedStatus = exports.createRoom = exports.listRooms = exports.deleteProperty = exports.updateProperty = exports.createProperty = exports.getPropertyDetail = exports.listProperties = exports.getDashboardStats = void 0;
+exports.createComplaint = exports.getFinanceSummary = exports.createMaintenance = exports.listMaintenance = exports.updateFoodMenu = exports.getFoodMenu = exports.deleteNotice = exports.createNotice = exports.listNotices = exports.addGateLog = exports.listGateLogs = exports.updateComplaintStatus = exports.listComplaints = exports.onboardTenant = exports.listTenants = exports.createStaff = exports.listStaff = exports.updateBedStatus = exports.createRoom = exports.listRooms = exports.deleteProperty = exports.updateProperty = exports.createProperty = exports.getPropertyDetail = exports.listProperties = exports.getDashboardStats = void 0;
 const admin_service_1 = require("./admin.service");
 const response_1 = require("../../utils/response");
 const client_1 = require("@prisma/client");
@@ -319,3 +319,154 @@ const addGateLog = async (req, res) => {
     }
 };
 exports.addGateLog = addGateLog;
+// ==========================================
+// NOTICES
+// ==========================================
+const listNotices = async (req, res) => {
+    try {
+        const ownerId = req.user?.ownerId || req.user?.userId || '';
+        const data = await admin_service_1.AdminService.listNotices(ownerId);
+        return (0, response_1.sendSuccess)(res, 'Notices fetched successfully', data);
+    }
+    catch (error) {
+        return (0, response_1.sendError)(res, error.message || 'Failed to fetch notices', 500, error);
+    }
+};
+exports.listNotices = listNotices;
+const createNotice = async (req, res) => {
+    try {
+        const ownerId = req.user?.ownerId || req.user?.userId || '';
+        const { title, content, category, target, isPinned } = req.body;
+        if (!title || !content)
+            return (0, response_1.sendError)(res, 'Title and content required', 400);
+        const notice = await admin_service_1.AdminService.createNotice({
+            ownerId,
+            title,
+            content,
+            category,
+            target,
+            isPinned,
+        });
+        return (0, response_1.sendSuccess)(res, 'Notice created successfully', notice, 201);
+    }
+    catch (error) {
+        return (0, response_1.sendError)(res, error.message || 'Failed to create notice', 500, error);
+    }
+};
+exports.createNotice = createNotice;
+const deleteNotice = async (req, res) => {
+    try {
+        const ownerId = req.user?.ownerId || req.user?.userId || '';
+        const id = String(req.params.id);
+        await admin_service_1.AdminService.deleteNotice(id, ownerId);
+        return (0, response_1.sendSuccess)(res, 'Notice deleted successfully', null);
+    }
+    catch (error) {
+        return (0, response_1.sendError)(res, error.message || 'Failed to delete notice', 500, error);
+    }
+};
+exports.deleteNotice = deleteNotice;
+// ==========================================
+// FOOD MENU
+// ==========================================
+const getFoodMenu = async (req, res) => {
+    try {
+        const ownerId = req.user?.ownerId || req.user?.userId || '';
+        const menu = await admin_service_1.AdminService.getFoodMenu(ownerId);
+        return (0, response_1.sendSuccess)(res, 'Food menu fetched successfully', menu);
+    }
+    catch (error) {
+        return (0, response_1.sendError)(res, error.message || 'Failed to fetch food menu', 500, error);
+    }
+};
+exports.getFoodMenu = getFoodMenu;
+const updateFoodMenu = async (req, res) => {
+    try {
+        const ownerId = req.user?.ownerId || req.user?.userId || '';
+        const { weekMenuJson } = req.body;
+        if (!weekMenuJson)
+            return (0, response_1.sendError)(res, 'Week menu JSON required', 400);
+        const menu = await admin_service_1.AdminService.updateFoodMenu(ownerId, typeof weekMenuJson === 'string' ? weekMenuJson : JSON.stringify(weekMenuJson));
+        return (0, response_1.sendSuccess)(res, 'Food menu updated successfully', menu);
+    }
+    catch (error) {
+        return (0, response_1.sendError)(res, error.message || 'Failed to update food menu', 500, error);
+    }
+};
+exports.updateFoodMenu = updateFoodMenu;
+// ==========================================
+// MAINTENANCE
+// ==========================================
+const listMaintenance = async (req, res) => {
+    try {
+        const ownerId = req.user?.ownerId || req.user?.userId || '';
+        const data = await admin_service_1.AdminService.listMaintenance(ownerId);
+        return (0, response_1.sendSuccess)(res, 'Maintenance contracts fetched successfully', data);
+    }
+    catch (error) {
+        return (0, response_1.sendError)(res, error.message || 'Failed to fetch maintenance contracts', 500, error);
+    }
+};
+exports.listMaintenance = listMaintenance;
+const createMaintenance = async (req, res) => {
+    try {
+        const ownerId = req.user?.ownerId || req.user?.userId || '';
+        const { vendorName, serviceType, startDate, endDate, cost, status } = req.body;
+        if (!vendorName || !serviceType || !startDate || !endDate) {
+            return (0, response_1.sendError)(res, 'Vendor name, service type, start and end date required', 400);
+        }
+        const item = await admin_service_1.AdminService.createMaintenance({
+            ownerId,
+            vendorName,
+            serviceType,
+            startDate,
+            endDate,
+            cost: Number(cost || 0),
+            status,
+        });
+        return (0, response_1.sendSuccess)(res, 'Maintenance contract created successfully', item, 201);
+    }
+    catch (error) {
+        return (0, response_1.sendError)(res, error.message || 'Failed to create maintenance contract', 500, error);
+    }
+};
+exports.createMaintenance = createMaintenance;
+// ==========================================
+// FINANCE SUMMARY
+// ==========================================
+const getFinanceSummary = async (req, res) => {
+    try {
+        const ownerId = req.user?.ownerId || req.user?.userId || '';
+        const data = await admin_service_1.AdminService.getFinanceSummary(ownerId);
+        return (0, response_1.sendSuccess)(res, 'Finance summary fetched successfully', data);
+    }
+    catch (error) {
+        return (0, response_1.sendError)(res, error.message || 'Failed to fetch finance summary', 500, error);
+    }
+};
+exports.getFinanceSummary = getFinanceSummary;
+// ==========================================
+// CREATE COMPLAINT
+// ==========================================
+const createComplaint = async (req, res) => {
+    try {
+        const userId = req.user?.userId || '';
+        const { propertyId, category, title, description, priority } = req.body;
+        if (!propertyId || !category || !title || !description) {
+            return (0, response_1.sendError)(res, 'Property ID, category, title, and description required', 400);
+        }
+        const complaint = await admin_service_1.AdminService.createComplaint({
+            propertyId,
+            userId,
+            category,
+            title,
+            description,
+            priority,
+        });
+        return (0, response_1.sendSuccess)(res, 'Complaint submitted successfully', complaint, 201);
+    }
+    catch (error) {
+        return (0, response_1.sendError)(res, error.message || 'Failed to create complaint', 500, error);
+    }
+};
+exports.createComplaint = createComplaint;

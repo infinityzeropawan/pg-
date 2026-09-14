@@ -51,5 +51,35 @@ export const managerDashboardApi = {
       vacantBeds,
       activeSos,
     };
+  },
+  async fetchBackendStats(propertyId?: string) {
+    try {
+      const { adminRequest } = await import('@/app/owner/owner_lib/owner_api/AdminClient');
+      const url = propertyId ? `/dashboard?propertyId=${encodeURIComponent(propertyId)}` : '/dashboard';
+      const res = await adminRequest<any>(url);
+      if (res) {
+        // All KPIs are computed by the backend from real DB tables
+        return {
+          todayCheckins: res.todayCheckins || 0,
+          todayCheckouts: res.todayCheckouts || 0,
+          openComplaints: res.openComplaints || 0,
+          pendingVisitors: res.pendingVisitors || 0,
+          occupiedBeds: res.occupiedBeds || 0,
+          occupancyRate: res.occupancyRate || 0,
+          rentCollected: res.thisMonthCollection || 0,
+          rentTarget: res.rentTarget || 0,
+          housekeepingDone: res.housekeepingDone || 0,
+          housekeepingTotal: res.housekeepingTotal || 0,
+          maintenanceOpen: res.maintenanceOpen || 0,
+          maintenanceTotal: res.maintenanceTotal || 0,
+          activeStudents: res.totalTenants || 0,
+          vacantBeds: res.vacantBeds || 0,
+          activeSos: res.activeSos || 0,
+        };
+      }
+    } catch {
+      // Fallback
+    }
+    return null;
   }
 };

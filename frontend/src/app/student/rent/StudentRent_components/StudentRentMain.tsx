@@ -18,9 +18,14 @@ export function StudentRentMain() {
   const [showPayModal, setShowPayModal] = useState<any>(null);
   const [paymentMethod, setPaymentMethod] = useState<'UPI' | 'Card' | 'NetBanking'>('UPI');
 
-  const loadData = () => {
+  const loadData = async () => {
     if (profile) {
-      setInvoices(studentOperationsApi.getInvoices((profile as any).userId || (profile as any).id));
+      try {
+        const invs = await studentOperationsApi.getInvoices();
+        setInvoices(Array.isArray(invs) ? invs : []);
+      } catch (e) {
+        console.error('Failed to load invoices:', e);
+      }
     }
   };
 
@@ -28,13 +33,17 @@ export function StudentRentMain() {
     loadData();
   }, [profile]);
 
-  const handlePay = () => {
-    if (!session || !profile || !showPayModal) return;
-    const totalAmount = showPayModal.amount + (showPayModal.electricityBillAmount || 0);
-    studentOperationsApi.payInvoice(showPayModal.id, (profile as any).id, totalAmount, (session as any).id);
-    toast.success(`Payment of ${formatINR(totalAmount)} via ${paymentMethod} successful!`);
-    setShowPayModal(null);
-    loadData();
+  const handlePay = async () => {
+    if (!profile || !showPayModal) return;
+    try {
+      const totalAmount = showPayModal.amount + (showPayModal.electricityBillAmount || 0);
+      await studentOperationsApi.payInvoice(showPayModal.id, (profile as any).id, paymentMethod);
+      toast.success(`Payment of ${formatINR(totalAmount)} via ${paymentMethod} successful!`);
+      setShowPayModal(null);
+      loadData();
+    } catch (err: any) {
+      toast.error(err.message || 'Payment failed');
+    }
   };
 
   if (!profile) return <div className="p-4 motion-safe:animate-pulse">Loading...</div>;

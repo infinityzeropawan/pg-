@@ -179,3 +179,15 @@ export const createBroadcast = async (req: AuthRequest, res: Response) => {
   try { return sendSuccess(res, 'Broadcast sent successfully', await SuperadminService.createBroadcast(req.body.message, req.user?.userId || ''), 201); }
   catch (error: any) { return sendError(res, error.message || 'Failed to send broadcast', 400, error); }
 };
+
+export const addOwnerNote = async (req: AuthRequest, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const { note } = req.body;
+    const adminId = req.user?.userId || '';
+    const audit = await SuperadminService.addOwnerNote(id, note, adminId);
+    return sendSuccess(res, 'Owner note saved successfully', audit, 201);
+  } catch (error: any) {
+    return sendError(res, error.message || 'Failed to add owner note', 400, error);
+  }
+};

@@ -18,12 +18,12 @@ export function StudentLoginMain() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      const user = api.login({ email, password, expectedRole: 'student' });
+      const user = await api.login({ email, password, expectedRole: 'STUDENT' });
       setSession(user);
       router.push('/student/dashboard');
     } catch (err: any) {
