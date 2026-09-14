@@ -12,8 +12,8 @@ import { ThemeToggle } from '@/components/ui/ThemeToggle';
 
 export function OwnerLoginMain() {
   const router = useRouter();
-  const [email, setEmail] = useState('owner@gmail.com');
-  const [password, setPassword] = useState('Owner3@123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);

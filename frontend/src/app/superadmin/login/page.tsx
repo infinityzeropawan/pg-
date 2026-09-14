@@ -10,8 +10,8 @@ import Link from 'next/link';
 
 export default function SuperAdminLogin() {
   const router = useRouter();
-  const [email, setEmail] = useState('superadmin@gmail.com');
-  const [password, setPassword] = useState('Super@123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);

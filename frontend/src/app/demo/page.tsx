@@ -4,8 +4,8 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { 
-  Shield, Building2, UserCheck, Users, User, ArrowRight, 
-  Sparkles, Key, ExternalLink, CheckCircle, MonitorPlay
+  Building2, UserCheck, Users, User, ArrowRight, 
+  Sparkles, ExternalLink, CheckCircle, MonitorPlay
 } from 'lucide-react';
 
 import { HomeHeader } from '@/components/home/HomeHeader';
@@ -16,18 +16,6 @@ export default function DemoPage() {
   const [loadingRole, setLoadingRole] = useState<string | null>(null);
 
   const demoAccounts = [
-    {
-      role: 'SUPERADMIN',
-      title: 'Superadmin Portal',
-      subtitle: 'System Health, Subscription Plans, Owner Approvals & Feature Flags',
-      icon: Shield,
-      email: 'superadmin@smartpg.com',
-      password: 'SuperAdmin@123',
-      color: 'from-amber-500/20 to-orange-500/10 border-amber-500/30 text-amber-600',
-      badge: 'Platform Governance',
-      href: '/superadmin/dashboard',
-      loginApiRole: 'SUPERADMIN',
-    },
     {
       role: 'OWNER',
       title: 'PG Owner Portal',
@@ -78,7 +66,7 @@ export default function DemoPage() {
     },
   ];
 
-  const handleQuickLogin = async (acc: typeof demoAccounts[0]) => {
+  const handleLaunchDemo = async (acc: typeof demoAccounts[0]) => {
     setLoadingRole(acc.role);
     try {
       const res = await fetch('http://localhost:5000/api/v1/auth/login', {
@@ -95,7 +83,7 @@ export default function DemoPage() {
         }
       }
     } catch (e) {
-      console.warn('Backend login fallback to client session:', e);
+      console.warn('Backend connection fallback for demo preview:', e);
       if (typeof window !== 'undefined') {
         localStorage.setItem('spg_current_session', JSON.stringify({
           id: `demo_${acc.role.toLowerCase()}`,
@@ -120,18 +108,18 @@ export default function DemoPage() {
           <div className="text-center space-y-4 max-w-3xl mx-auto">
             <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold bg-[var(--primary-teal)]/10 text-[var(--primary-teal)] border border-[var(--primary-teal)]/20 shadow-sm">
               <Sparkles className="w-4 h-4 animate-pulse" />
-              Live Interactive Production Demo Hub
+              Live Interactive Platform Preview
             </div>
             <h1 className="text-4xl md:text-5xl font-black tracking-tight text-[var(--primary-navy)]">
-              Experience <span className="text-[var(--primary-gold)]">Smart PG</span> In Action
+              Explore <span className="text-[var(--primary-gold)]">Smart PG</span> Feature Portals
             </h1>
             <p className="text-base md:text-lg text-[var(--text-dark)]/70">
-              Select any role below to launch the live interactive dashboard pre-populated with real production database records. No sign-up required!
+              Preview how PG Owners, Managers, Students, and Parents interact with the platform. Select a role below to explore the live dashboard UI.
             </p>
           </div>
 
           {/* Role Demo Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
             {demoAccounts.map((acc) => {
               const IconComp = acc.icon;
               const isLoading = loadingRole === acc.role;
@@ -154,47 +142,27 @@ export default function DemoPage() {
                       <h3 className="text-xl font-black text-[var(--primary-navy)] group-hover:text-[var(--primary-teal)] transition-colors">
                         {acc.title}
                       </h3>
-                      <p className="text-xs text-[var(--text-dark)]/70 mt-1 line-clamp-2">
+                      <p className="text-xs text-[var(--text-dark)]/70 mt-1">
                         {acc.subtitle}
                       </p>
                     </div>
-
-                    {/* Pre-filled credentials preview */}
-                    <div className="p-3 rounded-xl bg-white/70 border border-black/5 text-xs space-y-1 font-mono">
-                      <div className="flex items-center justify-between text-[11px] text-[var(--text-dark)]/60 font-sans font-semibold mb-1">
-                        <span className="flex items-center gap-1">
-                          <Key className="w-3 h-3 text-[var(--primary-teal)]" /> Demo Credentials
-                        </span>
-                        <span className="text-[10px] text-emerald-600 font-bold">Auto-login</span>
-                      </div>
-                      <div className="truncate"><span className="text-[var(--text-dark)]/40 font-sans">ID:</span> {acc.email}</div>
-                      <div className="truncate"><span className="text-[var(--text-dark)]/40 font-sans">Pass:</span> {acc.password}</div>
-                    </div>
                   </div>
 
-                  <div className="pt-5 mt-4 border-t border-black/5 space-y-2">
+                  <div className="pt-6 mt-6 border-t border-black/5 space-y-2">
                     <button
-                      onClick={() => handleQuickLogin(acc)}
+                      onClick={() => handleLaunchDemo(acc)}
                       disabled={isLoading}
                       className="w-full py-3 px-4 bg-[var(--primary-navy)] text-white font-bold text-xs rounded-xl shadow-md hover:bg-[var(--primary-teal)] transition-colors flex items-center justify-center gap-2 group/btn disabled:opacity-50"
                     >
                       {isLoading ? (
-                        <span>Launching Portal...</span>
+                        <span>Launching Live Preview...</span>
                       ) : (
                         <>
-                          <span>Launch {acc.role} Demo</span>
+                          <span>Preview {acc.title}</span>
                           <ArrowRight className="w-4 h-4 group-hover/btn:translate-x-1 transition-transform" />
                         </>
                       )}
                     </button>
-
-                    <Link
-                      href={acc.href}
-                      className="w-full py-2 text-center text-xs font-semibold text-[var(--primary-navy)]/70 hover:text-[var(--primary-navy)] flex items-center justify-center gap-1 hover:underline"
-                    >
-                      <span>Direct URL View</span>
-                      <ExternalLink className="w-3 h-3" />
-                    </Link>
                   </div>
                 </div>
               );
@@ -202,21 +170,21 @@ export default function DemoPage() {
           </div>
 
           {/* Quick Features Highlight */}
-          <div className="p-8 rounded-2xl bg-white border border-black/5 shadow-sm grid grid-cols-1 sm:grid-cols-3 gap-6 text-center">
+          <div className="p-8 rounded-2xl bg-white border border-black/5 shadow-sm grid grid-cols-1 sm:grid-cols-3 gap-6 text-center max-w-4xl mx-auto">
             <div className="space-y-1">
               <CheckCircle className="w-6 h-6 text-emerald-600 mx-auto" />
-              <div className="font-bold text-sm text-[var(--primary-navy)]">Real Database Connected</div>
+              <div className="font-bold text-sm text-[var(--primary-navy)]">Real Production Schema</div>
               <p className="text-xs text-[var(--text-dark)]/60">Live queries hitting PostgreSQL via Prisma REST API</p>
             </div>
             <div className="space-y-1">
               <MonitorPlay className="w-6 h-6 text-[var(--primary-teal)] mx-auto" />
-              <div className="font-bold text-sm text-[var(--primary-navy)]">Instant 1-Click Access</div>
-              <p className="text-xs text-[var(--text-dark)]/60">Automated JWT auth session setup for all 5 roles</p>
+              <div className="font-bold text-sm text-[var(--primary-navy)]">Instant Dashboard Preview</div>
+              <p className="text-xs text-[var(--text-dark)]/60">Explore UI workflows without creating an account</p>
             </div>
             <div className="space-y-1">
               <Sparkles className="w-6 h-6 text-amber-500 mx-auto" />
-              <div className="font-bold text-sm text-[var(--primary-navy)]">Full E2E Features</div>
-              <p className="text-xs text-[var(--text-dark)]/60">Room beds, rent dues, mess menu, SOS, and gate logs</p>
+              <div className="font-bold text-sm text-[var(--primary-navy)]">Full End-to-End Workflows</div>
+              <p className="text-xs text-[var(--text-dark)]/60">Rent dues, complaints, mess menu, SOS, and gate logs</p>
             </div>
           </div>
 
