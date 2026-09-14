@@ -21,7 +21,8 @@ export const stockApi = {
   getByPropertyAsync: async (propertyId: string): Promise<StockItem[]> => {
     try {
       const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
-      const res = await fetch('http://localhost:5000/api/v1/staff/stock', {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api/v1';
+      const res = await fetch(`${API_URL}/staff/stock`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();

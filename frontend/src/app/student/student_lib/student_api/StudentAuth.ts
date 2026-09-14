@@ -1,32 +1,45 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+import { STORAGE_KEYS } from '@/lib/storage/keys';
+
+const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api/v1';
 
 export const authApi = {
   async login({ email, password, expectedRole }: { email: string; password?: string; expectedRole?: string }) {
     try {
-      const res = await fetch(`${API_BASE}/api/v1/auth/login`, {
+      const res = await fetch(`${BACKEND_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, role: expectedRole || 'STUDENT' }),
+        body: JSON.stringify({ 
+          email: email.trim(), 
+          password, 
+          expectedRole: (expectedRole || 'STUDENT').toUpperCase() 
+        }),
       });
       const data = await res.json();
-      if (!data.success) {
-        throw new Error(data.message || 'Login failed');
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'Authentication failed');
       }
 
       const { accessToken, refreshToken, user } = data.data;
 
+      const sessionUser = {
+        id: user.id,
+        role: user.role.toLowerCase(),
+        name: user.fullName || user.name,
+        email: user.email,
+        ownerId: user.ownerId,
+        propertyId: user.propertyId,
+        mustChangePassword: user.mustChangePassword
+      };
+
       if (typeof window !== 'undefined') {
+        localStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, accessToken);
         localStorage.setItem('access_token', accessToken);
         if (refreshToken) localStorage.setItem('refresh_token', refreshToken);
-        localStorage.setItem('spg_current_session', JSON.stringify({
-          id: user.id,
-          role: user.role,
-          name: user.fullName || user.name,
-          email: user.email,
-        }));
+        localStorage.setItem(STORAGE_KEYS.CURRENT_SESSION, JSON.stringify(sessionUser));
+        localStorage.setItem('spg_current_session', JSON.stringify(sessionUser));
       }
 
-      return user;
+      return sessionUser;
     } catch (e: any) {
       console.error('[StudentAuth] Login failed:', e);
       throw new Error(e.message || 'Authentication error');
@@ -49,7 +62,7 @@ export const authApi = {
 
   async changePassword(_userId: string, newPassword: string) {
     const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
-    const res = await fetch(`${API_BASE}/api/v1/auth/change-password`, {
+    const res = await fetch(`${BACKEND_URL}/auth/change-password`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

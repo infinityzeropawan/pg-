@@ -19,7 +19,8 @@ export default function OwnerRequestPage() {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     try {
-      const res = await fetch('http://localhost:5000/api/v1/superadmin/owner-requests/public', {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api/v1';
+      const res = await fetch(`${API_URL}/superadmin/owner-requests/public`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

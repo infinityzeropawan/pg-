@@ -25,7 +25,8 @@ export function StudentProvider({ children }: { children: React.ReactNode }) {
       setLoading(true);
       try {
         const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
-        const res = await fetch('http://localhost:5000/api/v1/student/profile', {
+        const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api/v1';
+        const res = await fetch(`${API_URL}/student/profile`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await res.json();

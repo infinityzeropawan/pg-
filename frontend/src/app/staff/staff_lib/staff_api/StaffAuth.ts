@@ -1,33 +1,71 @@
 import { db } from '@/lib/storage/db';
 import { STORAGE_KEYS } from '@/lib/storage/keys';
 
-import type { SessionUser, Role } from '@/lib/types/models';
-import type { User } from '@/lib/types/models';
+import type { SessionUser, Role, User } from '@/lib/types/models';
+
+const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api/v1';
 
 export const authApi = {
-  login({ email, password, expectedRole }: { email: string; password?: string; expectedRole?: Role }) {
-    const users = db.getAll<User>(STORAGE_KEYS.USERS);
-    const user = users.find(u => u.email && u.email.toLowerCase().trim() === email.toLowerCase().trim() && !u.isDeleted && u.status === 'Active' && (!expectedRole || u.role === expectedRole));
-    
-    if (!user) throw new Error('User not found or inactive');
-    if (password && user.password !== password) throw new Error('Invalid password');
+  async login({ email, password, expectedRole }: { email: string; password?: string; expectedRole?: Role }) {
+    try {
+      const response = await fetch(`${BACKEND_URL}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          email: email.trim(), 
+          password, 
+          expectedRole: (expectedRole || 'STAFF').toUpperCase() 
+        }),
+      });
 
-    const sessionUser: any = {
-      id: user.id,
-      role: user.role,
-      name: user.name,
-      email: user.email,
-      propertyId: user.propertyId,
-      ownerId: user.ownerId,
-      assignedPropertyIds: user.assignedPropertyIds,
-      mustChangePassword: user.mustChangePassword
-    };
+      const resData = await response.json();
+      if (!response.ok || !resData.success) {
+        throw new Error(resData.message || 'Authentication failed');
+      }
 
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_KEYS.CURRENT_SESSION, JSON.stringify(sessionUser));
+      const rawUser = resData.data.user;
+      const sessionUser = {
+        id: rawUser.id,
+        role: rawUser.role.toLowerCase(),
+        name: rawUser.name,
+        email: rawUser.email,
+        ownerId: rawUser.ownerId,
+        mustChangePassword: rawUser.mustChangePassword
+      };
+
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(STORAGE_KEYS.CURRENT_SESSION, JSON.stringify(sessionUser));
+        localStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, resData.data.accessToken);
+        localStorage.setItem('access_token', resData.data.accessToken);
+        localStorage.setItem('refresh_token', resData.data.refreshToken);
+      }
+
+      return sessionUser;
+    } catch (backendErr: any) {
+      console.warn('Backend login fallback to local storage:', backendErr.message);
+      const users = db.getAll<User>(STORAGE_KEYS.USERS);
+      const user = users.find(u => u.email && u.email.toLowerCase().trim() === email.toLowerCase().trim() && !u.isDeleted && u.status === 'Active' && (!expectedRole || u.role.toLowerCase() === expectedRole.toLowerCase()));
+      
+      if (!user) throw new Error('User not found or inactive');
+      if (password && user.password !== password) throw new Error('Invalid password');
+
+      const sessionUser: any = {
+        id: user.id,
+        role: user.role.toLowerCase(),
+        name: user.name,
+        email: user.email,
+        propertyId: user.propertyId,
+        ownerId: user.ownerId,
+        assignedPropertyIds: user.assignedPropertyIds,
+        mustChangePassword: user.mustChangePassword
+      };
+
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(STORAGE_KEYS.CURRENT_SESSION, JSON.stringify(sessionUser));
+      }
+      
+      return sessionUser;
     }
-    
-    return sessionUser;
   },
 
   logout() {
