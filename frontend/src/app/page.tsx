@@ -34,22 +34,6 @@ export default function LandingPage() {
       </main>
       
       <HomeFooter />
-
-      {/* DEBUG BUTTON TO RESET LOCAL STORAGE */}
-      <div className="fixed bottom-4 left-4 z-50">
-        <button 
-          onClick={() => {
-            if (typeof window !== 'undefined') {
-              localStorage.clear();
-              alert('Database Reset! Reloading...');
-              window.location.reload();
-            }
-          }}
-          className="text-xs bg-red-600 text-white px-3 py-1 rounded shadow"
-        >
-          Reset Demo Data
-        </button>
-      </div>
     </div>
   );
 }
