@@ -23,9 +23,9 @@ export function HeroSection() {
           <Link href="/owner-request" className="btn-gold text-lg">
             🚀 Get Started Free
           </Link>
-          <button className="btn-outline-white text-lg">
-            ▶️ Watch Demo
-          </button>
+          <Link href="/demo" className="btn-outline-white text-lg flex items-center justify-center gap-2">
+            ▶️ Live Demo Hub
+          </Link>
         </div>
 
         {/* Stats */}
