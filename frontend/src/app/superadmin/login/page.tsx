@@ -107,10 +107,8 @@ export default function SuperAdminLogin() {
             </button>
           </form>
           
-          <div className="mt-8 p-4 bg-[var(--bg-medium)] rounded-[var(--radius-sm)] border border-gray-200 text-xs text-[var(--text-dark)]">
-            <strong>Demo Credentials:</strong><br/>
-            Email: superadmin@gmail.com<br/>
-            Password: Super@123
+          <div className="mt-6 text-center text-xs text-[var(--text-light)]">
+            Restricted System Access • Protected by SmartPG Security Policies
           </div>
         </div>
       </div>

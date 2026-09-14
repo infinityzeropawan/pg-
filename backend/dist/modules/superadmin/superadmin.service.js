@@ -14,6 +14,9 @@ class SuperadminService {
         const totalProperties = await db_1.prisma.property.count();
         const totalBeds = await db_1.prisma.bed.count();
         const occupiedBeds = await db_1.prisma.bed.count({ where: { status: 'OCCUPIED' } });
+        const totalTenants = await db_1.prisma.tenantStay.count({
+            where: { status: { in: [client_1.StayStatus.ACTIVE, client_1.StayStatus.CHECKED_IN] } },
+        });
         const pendingRequests = await db_1.prisma.ownerRequest.count({ where: { status: 'PENDING' } });
         // MRR calculation based on active subscriptions
         const subscriptions = await db_1.prisma.subscription.findMany({
@@ -32,6 +35,8 @@ class SuperadminService {
             totalProperties,
             totalBeds,
             occupiedBeds,
+            totalTenants,
+            totalStudents: totalTenants,
             occupancyRate: totalBeds > 0 ? Math.round((occupiedBeds / totalBeds) * 100) : 0,
             mrr: mrr / 100, // Convert Paise to Rupees for UI display
             pendingRequests,

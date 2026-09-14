@@ -239,7 +239,13 @@ async function main() {
                     mustChangePassword: false,
                 },
             });
-            if (property) {
+            console.log(`✅ Created Manager/Staff user: ${m.email} (Password: ${m.pass})`);
+        }
+        if (property) {
+            const existingAssign = await db_1.prisma.staffAssignment.findFirst({
+                where: { userId: existing.id, propertyId: property.id },
+            });
+            if (!existingAssign) {
                 await db_1.prisma.staffAssignment.create({
                     data: {
                         userId: existing.id,
@@ -248,7 +254,6 @@ async function main() {
                     },
                 });
             }
-            console.log(`✅ Created Manager/Staff user: ${m.email} (Password: ${m.pass})`);
         }
         if (!manager && (m.role || client_1.UserRole.MANAGER) === client_1.UserRole.MANAGER)
             manager = existing;
@@ -454,6 +459,90 @@ async function main() {
             });
         }
         console.log('✅ Seeded 3 Staff Tasks');
+        // Seed Sample Invoices & Payments if TenantStays exist
+        const stay = await db_1.prisma.tenantStay.findFirst({
+            where: { propertyId: property.id },
+        });
+        if (stay) {
+            const existingInv = await db_1.prisma.invoice.findFirst({
+                where: { stayId: stay.id },
+            });
+            if (!existingInv) {
+                const invoice = await db_1.prisma.invoice.create({
+                    data: {
+                        ownerId: owner.id,
+                        propertyId: property.id,
+                        stayId: stay.id,
+                        invoiceNumber: 'INV-DEMO-001',
+                        billingMonth: '2026-09',
+                        dueDate: new Date(Date.now() + 7 * 86400000),
+                        totalAmount: 850000,
+                        paidAmount: 850000,
+                        status: client_1.InvoiceStatus.PAID,
+                        items: {
+                            create: [
+                                { title: 'Monthly Rent - Sep 2026', amount: 850000 },
+                            ],
+                        },
+                    },
+                });
+                await db_1.prisma.payment.create({
+                    data: {
+                        ownerId: owner.id,
+                        invoiceId: invoice.id,
+                        transactionRef: 'TXN-DEMO-001',
+                        amount: 850000,
+                        method: client_1.PaymentMethod.UPI,
+                        status: client_1.PaymentStatus.COMPLETED,
+                    },
+                });
+                console.log('✅ Seeded Demo Invoice & Payment');
+            }
+        }
+        // Seed Sample Expenses
+        const expenseCount = await db_1.prisma.expense.count({ where: { propertyId: property.id } });
+        if (expenseCount === 0) {
+            const sampleExpenses = [
+                { title: 'Electricity Bill Sep', category: 'Utilities', amount: 125000, expenseDate: new Date() },
+                { title: 'Wi-Fi Fiber Connection', category: 'Internet', amount: 35000, expenseDate: new Date() },
+                { title: 'Daily Grocery & Vegetables', category: 'Food', amount: 240000, expenseDate: new Date() },
+            ];
+            for (const exp of sampleExpenses) {
+                await db_1.prisma.expense.create({
+                    data: {
+                        ownerId: owner.id,
+                        propertyId: property.id,
+                        title: exp.title,
+                        category: exp.category,
+                        amount: exp.amount,
+                        expenseDate: exp.expenseDate,
+                    },
+                });
+            }
+            console.log('✅ Seeded 3 Sample Expenses');
+        }
+        // Seed Sample Enquiries
+        const enquiryCount = await db_1.prisma.enquiry.count({ where: { propertyId: property.id } });
+        if (enquiryCount === 0) {
+            const sampleEnquiries = [
+                { name: 'Karan Malhotra', phone: '9876500001', email: 'karan@example.com', roomType: client_1.RoomType.DOUBLE_SHARING, message: 'Looking for a double sharing room from Oct 1st.', isResolved: false },
+                { name: 'Rohan Sharma', phone: '9876500002', email: 'rohan@example.com', roomType: client_1.RoomType.SINGLE, message: 'Interested in single room near PES college.', isResolved: true },
+            ];
+            for (const enq of sampleEnquiries) {
+                await db_1.prisma.enquiry.create({
+                    data: {
+                        propertyId: property.id,
+                        name: enq.name,
+                        phone: enq.phone,
+                        email: enq.email,
+                        roomType: enq.roomType,
+                        message: enq.message,
+                        isResolved: enq.isResolved,
+                    },
+                });
+            }
+            console.log('✅ Seeded 2 Sample Enquiries');
+        }
     }
     // 10. Seed Support Ticket
     const ticket = await db_1.prisma.supportTicket.findFirst();

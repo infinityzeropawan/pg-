@@ -8,6 +8,32 @@ const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const db_1 = require("../../db");
 const jwt_1 = require("../../utils/jwt");
 const response_1 = require("../../utils/response");
+async function getUserScope(user) {
+    let assignedPropertyIds = [];
+    let propertyId = null;
+    let resolvedOwnerId = user.ownerId || user.id;
+    if (user.role === 'OWNER') {
+        const props = await db_1.prisma.property.findMany({
+            where: { ownerId: user.id },
+            select: { id: true },
+        });
+        assignedPropertyIds = props.map(p => p.id);
+        propertyId = assignedPropertyIds[0] || null;
+        resolvedOwnerId = user.id;
+    }
+    else if (user.role === 'MANAGER' || user.role === 'STAFF') {
+        const assignments = await db_1.prisma.staffAssignment.findMany({
+            where: { userId: user.id },
+            include: { property: true },
+        });
+        assignedPropertyIds = assignments.map(a => a.propertyId);
+        propertyId = assignedPropertyIds[0] || null;
+        if (assignments[0]?.property?.ownerId) {
+            resolvedOwnerId = assignments[0].property.ownerId;
+        }
+    }
+    return { assignedPropertyIds, propertyId, ownerId: resolvedOwnerId };
+}
 const login = async (req, res) => {
     try {
         const { email, password, expectedRole } = req.body;
@@ -31,10 +57,11 @@ const login = async (req, res) => {
         if (!isMatch) {
             return (0, response_1.sendError)(res, 'Invalid credentials', 401);
         }
+        const scope = await getUserScope(user);
         const tokenPayload = {
             userId: user.id,
             role: user.role,
-            ownerId: user.ownerId,
+            ownerId: scope.ownerId,
             email: user.email,
         };
         const accessToken = (0, jwt_1.generateAccessToken)(tokenPayload);
@@ -53,7 +80,7 @@ const login = async (req, res) => {
         await db_1.prisma.auditLog.create({
             data: {
                 actorId: user.id,
-                ownerId: user.ownerId,
+                ownerId: scope.ownerId,
                 action: 'USER_LOGIN',
                 entityType: 'User',
                 entityId: user.id,
@@ -67,7 +94,9 @@ const login = async (req, res) => {
                 email: user.email,
                 phone: user.phone,
                 role: user.role.toLowerCase(),
-                ownerId: user.ownerId,
+                ownerId: scope.ownerId,
+                propertyId: scope.propertyId,
+                assignedPropertyIds: scope.assignedPropertyIds,
                 mustChangePassword: user.mustChangePassword,
             },
             accessToken,
@@ -115,13 +144,16 @@ const getCurrentUser = async (req, res) => {
         });
         if (!user)
             return (0, response_1.sendError)(res, 'User not found', 404);
+        const scope = await getUserScope(user);
         return (0, response_1.sendSuccess)(res, 'User fetched successfully', {
             id: user.id,
             name: user.fullName,
             email: user.email,
             phone: user.phone,
             role: user.role.toLowerCase(),
-            ownerId: user.ownerId,
+            ownerId: scope.ownerId,
+            propertyId: scope.propertyId,
+            assignedPropertyIds: scope.assignedPropertyIds,
             mustChangePassword: user.mustChangePassword,
         });
     }

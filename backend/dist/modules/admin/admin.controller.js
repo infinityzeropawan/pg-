@@ -55,14 +55,25 @@ const createProperty = async (req, res) => {
         const ownerId = req.user?.ownerId || req.user?.userId;
         if (!ownerId)
             return (0, response_1.sendError)(res, 'Owner ID required', 400);
-        const { name, type, address, city, state, pincode, contactPhone, contactEmail, amenities, rules, floorsCount } = req.body;
+        const { name, type, address, city, state, pincode, contactPhone, contactEmail, amenities, rules, floorsCount, defaultDeposit, bedRent, generateRooms, singleRoomsCount, doubleRoomsCount, tripleRoomsCount } = req.body;
         if (!name || !address || !city) {
             return (0, response_1.sendError)(res, 'Name, address, and city are required', 400);
         }
-        const property = await admin_service_1.AdminService.createProperty({
-            ownerId,
+        // Normalize UI-friendly type labels to the Prisma PropertyType enum
+        const typeMap = {
+            boys: client_1.PropertyType.BOYS_PG,
+            boys_pg: client_1.PropertyType.BOYS_PG,
+            girls: client_1.PropertyType.GIRLS_PG,
+            girls_pg: client_1.PropertyType.GIRLS_PG,
+            coed: client_1.PropertyType.COED_PG,
+            coed_pg: client_1.PropertyType.COED_PG,
+            hostel: client_1.PropertyType.HOSTEL,
+            coliving: client_1.PropertyType.COLIVING,
+        };
+        const normalizedType = (type ? typeMap[String(type).toLowerCase()] : undefined) || client_1.PropertyType.BOYS_PG;
+        const property = await admin_service_1.AdminService.createProperty(ownerId, {
             name,
-            type: type || client_1.PropertyType.BOYS_PG,
+            type: normalizedType,
             address,
             city,
             state,
@@ -72,6 +83,12 @@ const createProperty = async (req, res) => {
             amenities,
             rules,
             floorsCount: Number(floorsCount) || 2,
+            defaultDeposit: Number(defaultDeposit) || 0,
+            bedRent: Number(bedRent) || 0,
+            generateRooms: Boolean(generateRooms),
+            singleRoomsCount: Number(singleRoomsCount) || 0,
+            doubleRoomsCount: Number(doubleRoomsCount) || 0,
+            tripleRoomsCount: Number(tripleRoomsCount) || 0,
         });
         return (0, response_1.sendSuccess)(res, 'Property created successfully', property, 201);
     }
@@ -131,7 +148,8 @@ const createRoom = async (req, res) => {
             return (0, response_1.sendError)(res, 'Floor ID and room number are required', 400);
         }
         const room = await admin_service_1.AdminService.createRoom({
-            floorId,
+            propertyId: req.body.propertyId || req.body.floorId,
+            floorNumber: Number(req.body.floorNumber) || 1,
             roomNumber,
             type: type || client_1.RoomType.DOUBLE_SHARING,
             monthlyRent: Number(monthlyRent) || 8500,
@@ -183,14 +201,12 @@ const createStaff = async (req, res) => {
         if (!fullName || !email || !phone) {
             return (0, response_1.sendError)(res, 'Name, email, and phone are required', 400);
         }
-        const staff = await admin_service_1.AdminService.createStaff({
-            ownerId,
+        const staff = await admin_service_1.AdminService.createStaff(ownerId, {
             fullName,
             email,
             phone,
-            role,
-            propertyIds,
-            password,
+            role: role || client_1.UserRole.MANAGER,
+            propertyId: Array.isArray(propertyIds) ? propertyIds[0] : (propertyIds || req.body.propertyId || ''),
         });
         return (0, response_1.sendSuccess)(res, 'Staff member created successfully', staff, 201);
     }
@@ -225,20 +241,19 @@ const onboardTenant = async (req, res) => {
         if (!propertyId || !bedId || !fullName || !phone) {
             return (0, response_1.sendError)(res, 'Property, bed, name, and phone are required', 400);
         }
-        const stay = await admin_service_1.AdminService.onboardTenant({
-            ownerId,
-            propertyId,
-            bedId,
+        const stay = await admin_service_1.AdminService.onboardTenant(ownerId, {
             fullName,
             email: email || `${phone}@smartpg.com`,
             phone,
+            propertyId,
+            bedId,
             monthlyRent: Number(monthlyRent) || 8500,
             securityDeposit: Number(securityDeposit) || 10000,
-            parentName,
-            parentPhone,
+            startDate: checkInDate || new Date().toISOString(),
+            emergencyContactName: parentName,
+            emergencyContactPhone: parentPhone,
             permanentAddress,
             idProofNumber,
-            checkInDate,
         });
         return (0, response_1.sendSuccess)(res, 'Tenant onboarded successfully', stay, 201);
     }
@@ -270,7 +285,7 @@ const updateComplaintStatus = async (req, res) => {
         const { status, resolutionNotes } = req.body;
         if (!id || !status)
             return (0, response_1.sendError)(res, 'Complaint ID and status required', 400);
-        const updated = await admin_service_1.AdminService.updateComplaintStatus(id, status, resolutionNotes);
+        const updated = await admin_service_1.AdminService.updateComplaintStatus(id, status);
         return (0, response_1.sendSuccess)(res, 'Complaint status updated successfully', updated);
     }
     catch (error) {
@@ -303,14 +318,8 @@ const addGateLog = async (req, res) => {
         const log = await admin_service_1.AdminService.addGateLog({
             propertyId,
             userId: studentId,
-            studentName,
-            roomNumber,
-            type: type.toUpperCase() === 'EXIT' ? 'EXIT' : 'ENTRY',
-            reason,
-            destination,
-            expectedReturnTime,
-            isLate: Boolean(isLate),
-            loggedBy: req.user?.email || 'Manager',
+            entryType: type.toUpperCase() === 'EXIT' ? 'EXIT' : 'ENTRY',
+            passCode: req.body.passCode,
         });
         return (0, response_1.sendSuccess)(res, 'Gate log recorded successfully', log, 201);
     }
@@ -339,13 +348,10 @@ const createNotice = async (req, res) => {
         const { title, content, category, target, isPinned } = req.body;
         if (!title || !content)
             return (0, response_1.sendError)(res, 'Title and content required', 400);
-        const notice = await admin_service_1.AdminService.createNotice({
-            ownerId,
+        const notice = await admin_service_1.AdminService.createNotice(ownerId, {
             title,
-            content,
-            category,
-            target,
-            isPinned,
+            message: content,
+            propertyId: req.body.propertyId,
         });
         return (0, response_1.sendSuccess)(res, 'Notice created successfully', notice, 201);
     }
@@ -358,7 +364,7 @@ const deleteNotice = async (req, res) => {
     try {
         const ownerId = req.user?.ownerId || req.user?.userId || '';
         const id = String(req.params.id);
-        await admin_service_1.AdminService.deleteNotice(id, ownerId);
+        await admin_service_1.AdminService.deleteNotice(id);
         return (0, response_1.sendSuccess)(res, 'Notice deleted successfully', null);
     }
     catch (error) {
@@ -415,14 +421,10 @@ const createMaintenance = async (req, res) => {
         if (!vendorName || !serviceType || !startDate || !endDate) {
             return (0, response_1.sendError)(res, 'Vendor name, service type, start and end date required', 400);
         }
-        const item = await admin_service_1.AdminService.createMaintenance({
-            ownerId,
-            vendorName,
-            serviceType,
-            startDate,
-            endDate,
-            cost: Number(cost || 0),
-            status,
+        const item = await admin_service_1.AdminService.createMaintenance(ownerId, {
+            propertyId: req.body.propertyId || '',
+            title: vendorName || serviceType,
+            amount: Number(cost || 0),
         });
         return (0, response_1.sendSuccess)(res, 'Maintenance contract created successfully', item, 201);
     }
@@ -455,13 +457,12 @@ const createComplaint = async (req, res) => {
         if (!propertyId || !category || !title || !description) {
             return (0, response_1.sendError)(res, 'Property ID, category, title, and description required', 400);
         }
-        const complaint = await admin_service_1.AdminService.createComplaint({
+        const complaint = await admin_service_1.AdminService.createComplaint(userId, {
             propertyId,
-            userId,
-            category,
             title,
             description,
-            priority,
+            category,
+            priority: priority,
         });
         return (0, response_1.sendSuccess)(res, 'Complaint submitted successfully', complaint, 201);
     }

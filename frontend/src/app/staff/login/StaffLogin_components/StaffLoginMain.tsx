@@ -12,18 +12,18 @@ import { ThemeToggle } from '@/components/ui/ThemeToggle';
 
 export function StaffLoginMain() {
   const router = useRouter();
-  const [email, setEmail] = useState('cook3@gmail.com');
-  const [password, setPassword] = useState('Cook@123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      const user = api.login({ email, password, expectedRole: 'staff' });
+      const user = await api.login({ email, password, expectedRole: 'staff' });
       setSession(user);
       router.push(user.mustChangePassword ? '/staff/first-login' : '/staff/dashboard');
     } catch (err: any) {
@@ -106,10 +106,9 @@ export function StaffLoginMain() {
             </button>
           </form>
 
-          <div className="mt-8 p-4 bg-[var(--bg-medium)] rounded-[var(--radius-sm)] border border-gray-200 text-xs text-[var(--text-dark)]">
-            <strong>Demo Credentials:</strong><br/>
-            Email: {email}<br/>
-            Password: {password}
+          <div className="mt-6 text-center text-xs text-[var(--text-light)] space-y-2">
+            <div>Looking for interactive demo? <Link href="/demo" className="text-[var(--primary-teal)] font-semibold hover:underline">Open Demo Sandbox</Link></div>
+            <div>Switch role? <Link href="/login" className="text-[var(--primary-navy)] font-semibold hover:underline">Unified Role Login</Link></div>
           </div>
         </div>
       </div>
