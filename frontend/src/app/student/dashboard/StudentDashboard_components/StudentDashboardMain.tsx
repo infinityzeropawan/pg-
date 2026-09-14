@@ -8,9 +8,10 @@ import { IndianRupee, MapPin, Bell, Utensils, TriangleAlert, Home, MessageSquare
 
 import { useStudentDashboard } from '@/app/student/dashboard/StudentDashboard_hooks/useStudentDashboard';
 import { STUDENT_ROUTES } from '@/app/student/student_url_config';
+import { formatPaise } from '@/lib/utils/money';
 
 export function StudentDashboardMain() {
-  const { profile, loading, menu, notices, handleReferralSubmit } = useStudentDashboard();
+  const { profile, loading, menu, notices } = useStudentDashboard();
 
   if (loading || !profile) return <div className="p-4 md:p-6 motion-safe:animate-pulse">Loading dashboard...</div>;
 
@@ -30,7 +31,7 @@ export function StudentDashboardMain() {
             <span>📅 {dateStr}</span> | <span>⏰ {timeStr}</span>
           </div>
           <div className="inline-flex items-center gap-2 bg-white/20 px-4 py-2 rounded-[var(--radius-sm)] text-sm font-bold backdrop-blur-sm shadow-sm border border-white/10">
-            🏠 {profile.propertyName || 'Green Valley PG'} - Room {profile.roomNumber || '-'}, Bed {profile.bedCode || '-'}
+            🏠 {profile.propertyName || 'Your PG'} - Room {profile.roomNumber || '-'}, Bed {profile.bedCode || '-'}
           </div>
         </div>
       </div>
@@ -45,12 +46,15 @@ export function StudentDashboardMain() {
           <div>
             <div className="text-secondary font-bold text-sm mb-1 uppercase tracking-wider">💳 Rent Status</div>
             <div className={`text-2xl font-black ${profile.duesAmount > 0 ? 'text-danger' : 'text-success'}`}>
-              ₹{profile.duesAmount > 0 ? profile.duesAmount : '0'}
+              {formatPaise(Number(profile.duesAmount) || 0)}
             </div>
             <div className="text-sm font-medium text-secondary mt-1">
               {profile.duesAmount > 0 ? (
                 <span className="flex items-center gap-1">
-                  <span className="inline-block w-2 h-2 rounded-full bg-warning"></span> Pending | Due: 10th Sep 2024 (⏰ 4 days left)
+                  <span className="inline-block w-2 h-2 rounded-full bg-warning"></span>
+                  {profile.unpaidInvoicesCount > 0
+                    ? `${profile.unpaidInvoicesCount} unpaid invoice${profile.unpaidInvoicesCount > 1 ? 's' : ''} pending`
+                    : 'Payment pending'}
                 </span>
               ) : 'All cleared for this month!'}
             </div>
@@ -70,9 +74,9 @@ export function StudentDashboardMain() {
         {[
           { label: 'My Room', icon: Home, link: STUDENT_ROUTES.ROOM, subtext: 'View →', color: 'text-info', bg: 'bg-info-bg' },
           { label: 'Rent', icon: IndianRupee, link: STUDENT_ROUTES.RENT, subtext: 'History', color: 'text-success', bg: 'bg-success-bg' },
-          { label: 'Complaints', icon: MessageSquareWarning, link: STUDENT_ROUTES.COMPLAINTS, subtext: '(2 Open)', color: 'text-danger', bg: 'bg-danger-bg' },
+          { label: 'Complaints', icon: MessageSquareWarning, link: STUDENT_ROUTES.COMPLAINTS, subtext: 'Track', color: 'text-danger', bg: 'bg-danger-bg' },
           { label: "Today's Menu", icon: Utensils, link: STUDENT_ROUTES.MESS, subtext: 'View', color: 'text-warning', bg: 'bg-warning-bg' },
-          { label: 'Notices', icon: Bell, link: STUDENT_ROUTES.NOTICES, subtext: '(3 New)', color: 'text-purple', bg: 'bg-purple-bg' },
+          { label: 'Notices', icon: Bell, link: STUDENT_ROUTES.NOTICES, subtext: 'View', color: 'text-purple', bg: 'bg-purple-bg' },
         ].map((action, idx) => (
           <Link key={idx} href={action.link} className="bg-card border border-border p-4 rounded-[var(--radius-md)] flex flex-col items-center justify-center text-center hover:border-primary hover:shadow-sm transition-all group">
             <div className={`p-2 rounded-full ${action.bg} ${action.color} mb-3 group-hover:scale-110 transition-transform`}>
@@ -94,19 +98,19 @@ export function StudentDashboardMain() {
             <div>
               <div className="text-xs font-bold text-secondary uppercase tracking-wider mb-2">Breakfast (8-9:30 AM)</div>
               <div className="flex items-center gap-2 text-primary font-medium bg-input p-3 rounded-[var(--radius-md)]">
-                🍛 {menu?.breakfast || 'Poha + Tea'}
+                🍛 {menu?.breakfast || 'Not published yet'}
               </div>
             </div>
             <div>
               <div className="text-xs font-bold text-secondary uppercase tracking-wider mb-2">Lunch (12-2 PM)</div>
               <div className="flex items-center gap-2 text-primary font-medium bg-input p-3 rounded-[var(--radius-md)]">
-                🍚 {menu?.lunch || 'Dal + Rice + Sabji'}
+                🍚 {menu?.lunch || 'Not published yet'}
               </div>
             </div>
             <div>
               <div className="text-xs font-bold text-secondary uppercase tracking-wider mb-2">Dinner (8-10 PM)</div>
               <div className="flex items-center gap-2 text-primary font-medium bg-input p-3 rounded-[var(--radius-md)]">
-                🫓 {menu?.dinner || 'Roti + Paneer + Salad'}
+                🫓 {menu?.dinner || 'Not published yet'}
               </div>
             </div>
           </div>
@@ -140,61 +144,57 @@ export function StudentDashboardMain() {
         </div>
       </div>
 
-      {/* 6. Monthly Activity Summary */}
+      {/* 6. Account Snapshot (real profile facts) */}
       <div className="bg-card border border-border rounded-[var(--radius-lg)] p-5 shadow-sm">
-        <h3 className="font-black text-primary text-lg mb-4">📊 Monthly Activity Summary</h3>
+        <h3 className="font-black text-primary text-lg mb-4">📊 Account Snapshot</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="p-4 bg-input rounded-[var(--radius-md)] text-center">
-            <div className="text-2xl font-black text-success mb-1">28/30</div>
-            <div className="text-xs font-bold text-secondary uppercase tracking-wider">Present</div>
+            <div className={`text-2xl font-black mb-1 ${profile.duesAmount > 0 ? 'text-danger' : 'text-success'}`}>
+              {formatPaise(Number(profile.duesAmount) || 0)}
+            </div>
+            <div className="text-xs font-bold text-secondary uppercase tracking-wider">Outstanding</div>
           </div>
           <div className="p-4 bg-input rounded-[var(--radius-md)] text-center">
-            <div className="text-2xl font-black text-info mb-1">85%</div>
-            <div className="text-xs font-bold text-secondary uppercase tracking-wider">Attendance</div>
+            <div className="text-2xl font-black text-info mb-1">{formatPaise(Number(profile.monthlyRent) || 0)}</div>
+            <div className="text-xs font-bold text-secondary uppercase tracking-wider">Monthly Rent</div>
           </div>
           <div className="p-4 bg-input rounded-[var(--radius-md)] text-center">
-            <div className="text-2xl font-black text-warning mb-1">3</div>
-            <div className="text-xs font-bold text-secondary uppercase tracking-wider">Leaves</div>
+            <div className="text-2xl font-black text-warning mb-1">{formatPaise(Number(profile.securityDeposit) || 0)}</div>
+            <div className="text-xs font-bold text-secondary uppercase tracking-wider">Deposit Held</div>
           </div>
           <div className="p-4 bg-input rounded-[var(--radius-md)] text-center">
-            <div className="text-2xl font-black text-purple mb-1 flex items-center justify-center gap-1">4.8 ⭐</div>
-            <div className="text-xs font-bold text-secondary uppercase tracking-wider">Rating</div>
+            <div className="text-lg font-black text-purple mb-1 capitalize">
+              {profile.stayStatus ? profile.stayStatus.replace(/_/g, ' ').toLowerCase() : '—'}
+            </div>
+            <div className="text-xs font-bold text-secondary uppercase tracking-wider">Stay Status</div>
           </div>
         </div>
       </div>
 
-      {/* 7. Recent Updates */}
+      {/* 7. Recent Updates (real notices from the database) */}
       <div className="bg-card border border-border rounded-[var(--radius-lg)] p-5 shadow-sm">
-        <h3 className="font-black text-primary text-lg mb-4 border-b border-border pb-3">📝 Recent Updates</h3>
+        <div className="flex items-center justify-between mb-4 border-b border-border pb-3">
+          <h3 className="font-black text-primary text-lg">📝 Recent Updates</h3>
+          <Link href={STUDENT_ROUTES.NOTICES} className="text-xs font-bold text-primary hover:underline">
+            View all →
+          </Link>
+        </div>
         <div className="space-y-4">
-          <div className="flex items-start gap-3">
-            <Bell className="w-5 h-5 text-warning shrink-0 mt-0.5" />
-            <div>
-              <div className="font-medium text-primary">Notice: Water supply will be off tomorrow 10-11 AM</div>
-              <div className="text-xs text-secondary mt-1">Today at 5:00 PM</div>
-            </div>
-          </div>
-          <div className="flex items-start gap-3">
-            <Bell className="w-5 h-5 text-success shrink-0 mt-0.5" />
-            <div>
-              <div className="font-medium text-primary">Your complaint #234 has been resolved</div>
-              <div className="text-xs text-secondary mt-1">Today at 2:30 PM</div>
-            </div>
-          </div>
-          <div className="flex items-start gap-3">
-            <Bell className="w-5 h-5 text-info shrink-0 mt-0.5" />
-            <div>
-              <div className="font-medium text-primary">Visitor request approved for Saturday</div>
-              <div className="text-xs text-secondary mt-1">Today at 11:00 AM</div>
-            </div>
-          </div>
-          <div className="flex items-start gap-3">
-            <Bell className="w-5 h-5 text-danger shrink-0 mt-0.5" />
-            <div>
-              <div className="font-medium text-primary">Rent reminder: Due in 4 days</div>
-              <div className="text-xs text-secondary mt-1">Today at 9:00 AM</div>
-            </div>
-          </div>
+          {notices.length === 0 ? (
+            <div className="text-sm text-secondary">No notices published yet.</div>
+          ) : (
+            notices.map((n: any) => (
+              <div key={n.id} className="flex items-start gap-3">
+                <Bell className="w-5 h-5 text-warning shrink-0 mt-0.5" />
+                <div>
+                  <div className="font-medium text-primary">{n.title}</div>
+                  <div className="text-xs text-secondary mt-1">
+                    {n.createdAt ? new Date(n.createdAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
 

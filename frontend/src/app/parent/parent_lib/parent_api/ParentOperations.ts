@@ -4,7 +4,7 @@
  * Falls back gracefully when the backend is unavailable.
  */
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+import { apiUrl, warnIfApiBaseUnconfigured } from '@/lib/config/apiBase';
 
 function getAuthHeaders(): HeadersInit {
   const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
@@ -15,8 +15,9 @@ function getAuthHeaders(): HeadersInit {
 }
 
 async function apiGet<T = any>(path: string): Promise<T | null> {
+  warnIfApiBaseUnconfigured();
   try {
-    const res = await fetch(`${API_BASE}${path}`, { headers: getAuthHeaders() });
+    const res = await fetch(apiUrl(path), { headers: getAuthHeaders() });
     const json = await res.json();
     if (json.success) return json.data as T;
     return null;
@@ -27,8 +28,9 @@ async function apiGet<T = any>(path: string): Promise<T | null> {
 }
 
 async function apiPost<T = any>(path: string, body?: any): Promise<T | null> {
+  warnIfApiBaseUnconfigured();
   try {
-    const res = await fetch(`${API_BASE}${path}`, {
+    const res = await fetch(apiUrl(path), {
       method: 'POST',
       headers: getAuthHeaders(),
       body: body ? JSON.stringify(body) : undefined,
@@ -50,7 +52,7 @@ export const parentOperationsApi = {
   getProfile: async () => apiGet('/api/v1/parent/profile'),
   updateProfile: async (data: { relation?: string; address?: string }) => {
     try {
-      const res = await fetch(`${API_BASE}/api/v1/parent/profile`, {
+      const res = await fetch(apiUrl('/api/v1/parent/profile'), {
         method: 'PUT',
         headers: getAuthHeaders(),
         body: JSON.stringify(data),

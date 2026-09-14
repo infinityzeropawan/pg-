@@ -1,6 +1,7 @@
 import { StatusCodes } from 'http-status-codes';
 
 import { env } from '@/config/env';
+import { apiUrl, warnIfApiBaseUnconfigured } from '@/lib/config/apiBase';
 import { STORAGE_KEYS } from '@/lib/storage/keys';
 
 import type { ApiResponse } from '@/lib/types/api.types';
@@ -16,7 +17,8 @@ export async function apiClient<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<ApiResponse<T>> {
-  const url = `${env.NEXT_PUBLIC_API_URL}${endpoint}`;
+  warnIfApiBaseUnconfigured();
+  const url = apiUrl(endpoint);
   
   // Default headers
   const headers = new Headers(options.headers);

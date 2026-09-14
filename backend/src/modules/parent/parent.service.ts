@@ -261,14 +261,12 @@ export class ParentService {
     const linked = await ParentService.getLinkedStudent(parentUserId);
     if (!linked?.tenantProfile) return [];
 
-    const stay = await prisma.tenantStay.findFirst({
-      where: { tenantId: linked.tenantProfile.id },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (!stay) return [];
+    // SECURITY: a parent may only read the complaints raised by their linked child.
+    const studentUserId = linked.tenantProfile.user?.id;
+    if (!studentUserId) return [];
 
     return prisma.complaint.findMany({
-      where: { propertyId: stay.propertyId, ownerId: stay.ownerId },
+      where: { createdByUserId: studentUserId },
       orderBy: { createdAt: 'desc' },
     });
   }

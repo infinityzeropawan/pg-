@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import { IndianRupee, FileText, CheckCircle2, Clock } from 'lucide-react';
 
+import { toast } from 'sonner';
+
 import { parentOperationsApi as api } from '@/app/parent/parent_lib/parent_api/ParentOperations';
 
 export function ParentFinanceMain() {
@@ -38,11 +40,11 @@ export function ParentFinanceMain() {
   const handlePay = async (invoiceId: string) => {
     try {
       await api.payInvoice(invoiceId, 'UPI');
-      alert('Payment successful!');
+      toast.success('Payment recorded successfully.');
       const updated = await api.getInvoices();
       setInvoices(Array.isArray(updated) ? updated : []);
     } catch (e: any) {
-      alert(e.message || 'Payment failed');
+      toast.error(e?.message || 'Payment failed');
     }
   };
 

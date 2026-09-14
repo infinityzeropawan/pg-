@@ -21,8 +21,10 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { useStudentContext } from '@/app/student/student_components/StudentContext';
-import { studentOperationsApi } from '@/app/student/student_lib/student_api/StudentOperations';
-import { getSession } from '@/app/student/student_lib/student_auth/StudentSession';
+import {
+  useStudentAttendance,
+  type CalendarCellStatus,
+} from '@/app/student/attendance/StudentAttendance_hooks/useStudentAttendance';
 
 const REASON_OPTIONS = [
   { id: 'College / Classes', label: '🎓 College / Classes' },
@@ -38,46 +40,33 @@ const REASON_OPTIONS = [
 
 export function StudentAttendanceMain() {
   const { profile, loading: ctxLoading } = useStudentContext();
-  const session = typeof window !== 'undefined' ? getSession() : null;
 
-  const [logs, setLogs] = useState<any[]>([]);
+  const {
+    logs,
+    calendar,
+    stats,
+    currentStatus,
+    lastActivity,
+    loading,
+    submitting: isSubmitting,
+    error,
+    monthLabel,
+    recordGateAttendance,
+  } = useStudentAttendance();
+
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scanStep, setScanStep] = useState<'scan' | 'form' | 'success'>('scan');
-  
+
   // Gate Form State
   const [gateAction, setGateAction] = useState<'entry' | 'exit'>('exit');
   const [selectedReason, setSelectedReason] = useState('College / Classes');
   const [destination, setDestination] = useState('');
   const [expectedReturnTime, setExpectedReturnTime] = useState('06:00 PM');
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [lastSubmittedLog, setLastSubmittedLog] = useState<any>(null);
-
-  const loadLogs = async () => {
-    try {
-      const gateLogs = await studentOperationsApi.getGateLogs();
-      const logsArray = Array.isArray(gateLogs) ? gateLogs : [];
-      setLogs(logsArray);
-      
-      // Auto-set the next expected action based on last log
-      if (logsArray.length > 0) {
-        const lastLog = logsArray[0];
-        setGateAction((lastLog.type || '').toLowerCase() === 'exit' ? 'entry' : 'exit');
-      }
-    } catch (e) {
-      console.error('Failed to load gate logs:', e);
-    }
-  };
-
-  useEffect(() => {
-    loadLogs();
-  }, [profile?.id]);
-
-  const currentStatus = logs.length > 0 && (logs[0].type || '').toLowerCase() === 'exit' ? 'OUTSIDE' : 'INSIDE';
-  const lastActivity = logs.length > 0 ? logs[0] : null;
 
   const handleOpenScanner = () => {
     setScanStep('scan');
-    // Pre-populate default action
+    // Pre-populate the default action from the live gate status
     setGateAction(currentStatus === 'INSIDE' ? 'exit' : 'entry');
     setIsScannerOpen(true);
   };
@@ -88,36 +77,17 @@ export function StudentAttendanceMain() {
 
   const handleSubmitAttendance = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!profile?.id) return;
-
-    setIsSubmitting(true);
-    try {
-      const newLog = await studentOperationsApi.recordGateAttendance({
-        type: gateAction,
-        reason: selectedReason,
-        destination: destination || selectedReason,
-        expectedReturnTime: gateAction === 'exit' ? expectedReturnTime : undefined,
-      });
-
+    const newLog = await recordGateAttendance({
+      type: gateAction,
+      reason: selectedReason,
+      destination,
+      expectedReturnTime,
+    });
+    if (newLog) {
       setLastSubmittedLog(newLog);
       setScanStep('success');
-      loadLogs();
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsSubmitting(false);
     }
   };
-
-  // Mocking calendar days for current month stats
-  const days = Array.from({ length: 30 }, (_, i) => ({
-    day: i + 1,
-    status: (i + 1) === 15 ? 'Absent' : (i + 1) === 10 ? 'Late' : (i + 1) > 28 ? 'Pending' : 'Present'
-  }));
-
-  if (ctxLoading) {
-    return <div className="p-8 text-center text-secondary animate-pulse">Loading attendance dashboard...</div>;
-  }
 
   return (
     <div className="space-y-6 w-full pb-16">
@@ -202,14 +172,16 @@ export function StudentAttendanceMain() {
         <div className="md:col-span-1 space-y-4">
           <div className="bg-primary-subtle border border-primary/20 rounded-xl p-5 text-center shadow-sm">
             <div className="text-xs font-bold text-primary/70 uppercase mb-1">Attendance Rate</div>
-            <div className="text-4xl font-black text-primary">96%</div>
-            <div className="text-xs font-semibold text-primary mt-1">28/30 Days Present</div>
+            <div className="text-4xl font-black text-primary">{stats.attendanceRate}%</div>
+            <div className="text-xs font-semibold text-primary mt-1">
+              {stats.present}/{stats.total} Days Present
+            </div>
           </div>
           
           <div className="bg-card border border-border rounded-xl p-4 shadow-sm flex items-center justify-between">
             <div>
               <div className="text-xs font-bold text-secondary uppercase">Late Curfew Entries</div>
-              <div className="text-2xl font-black text-warning">1</div>
+              <div className="text-2xl font-black text-warning">{stats.lateEntries}</div>
             </div>
             <div className="w-10 h-10 rounded-lg bg-warning/10 text-warning flex items-center justify-center">
               <AlertTriangle className="w-5 h-5" />
@@ -219,7 +191,7 @@ export function StudentAttendanceMain() {
           <div className="bg-card border border-border rounded-xl p-4 shadow-sm flex items-center justify-between">
             <div>
               <div className="text-xs font-bold text-secondary uppercase">Approved Leaves</div>
-              <div className="text-2xl font-black text-primary">2</div>
+              <div className="text-2xl font-black text-primary">{stats.approvedLeaves}</div>
             </div>
             <div className="w-10 h-10 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
               <UserCheck className="w-5 h-5" />
@@ -239,11 +211,13 @@ export function StudentAttendanceMain() {
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-6">
              <h3 className="font-black text-primary text-lg flex items-center gap-2">
                <CalendarIcon className="w-5 h-5 text-primary" /> Monthly Attendance Calendar
+               <span className="text-xs font-bold text-secondary normal-case">({monthLabel})</span>
              </h3>
-             <div className="flex gap-4 text-xs font-bold text-secondary">
+             <div className="flex flex-wrap gap-4 text-xs font-bold text-secondary">
                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Present</span>
                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-rose-500"></span> Absent</span>
                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span> Late</span>
+               <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-sky-500"></span> Leave</span>
              </div>
           </div>
           
@@ -251,14 +225,20 @@ export function StudentAttendanceMain() {
             {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => (
               <div key={d} className="font-bold text-secondary text-xs uppercase mb-1">{d}</div>
             ))}
-            <div></div><div></div>
-            {days.map(d => (
+            {/* Offset so day 1 lands on the correct weekday column */}
+            {Array.from({
+              length: (new Date(new Date().getFullYear(), new Date().getMonth(), 1).getDay() + 6) % 7,
+            }).map((_, i) => (
+              <div key={`offset-${i}`}></div>
+            ))}
+            {calendar.map(d => (
               <div 
                 key={d.day} 
                 className={`aspect-square flex flex-col items-center justify-center rounded-lg text-xs font-bold border transition-colors ${
                   d.status === 'Present' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400' :
                   d.status === 'Absent' ? 'bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-400' :
                   d.status === 'Late' ? 'bg-amber-500/10 border-amber-500/20 text-amber-600 dark:text-amber-400' :
+                  d.status === 'Leave' ? 'bg-sky-500/10 border-sky-500/20 text-sky-600 dark:text-sky-400' :
                   'bg-input border-border text-secondary'
                 }`}
               >
@@ -329,11 +309,17 @@ export function StudentAttendanceMain() {
                          <td className="px-4 py-3 text-secondary text-xs font-medium">
                            {log.type === 'exit' ? (log.expectedReturnTime || 'By Curfew') : 'Returned'}
                          </td>
-                         <td className="px-4 py-3">
-                           <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600">
-                             <CheckCircle2 className="w-3.5 h-3.5" /> Sent
-                           </span>
-                         </td>
+                           <td className="px-4 py-3">
+                             {log.parentNotified ? (
+                               <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600">
+                                 <CheckCircle2 className="w-3.5 h-3.5" /> Sent
+                               </span>
+                             ) : (
+                               <span className="inline-flex items-center gap-1 text-xs font-semibold text-secondary">
+                                 <AlertCircle className="w-3.5 h-3.5" /> No parent linked
+                               </span>
+                             )}
+                           </td>
                        </tr>
                      );
                    })
@@ -541,7 +527,11 @@ export function StudentAttendanceMain() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-secondary">Parent Notification:</span>
-                    <span className="font-bold text-emerald-600">Dispatched ✅</span>
+                    {lastSubmittedLog.parentNotified ? (
+                      <span className="font-bold text-emerald-600">Dispatched ✅</span>
+                    ) : (
+                      <span className="font-bold text-secondary">No parent linked</span>
+                    )}
                   </div>
                   <div className="flex justify-between">
                     <span className="text-secondary">Manager Roster:</span>

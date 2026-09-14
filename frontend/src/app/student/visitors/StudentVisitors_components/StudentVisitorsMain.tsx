@@ -1,20 +1,75 @@
 'use client';
 
-// RESPONSIBILITY: Renders the Student Visitors UI.
+// RESPONSIBILITY: Renders the Student Visitors UI from live API data.
+// DATA FLOW: GET/POST /api/v1/student/visitors, PATCH .../:id/checkout
+//            -> useStudentVisitors -> StudentVisitorsMain
 
 import { useState } from 'react';
-import { Users, Plus, QrCode, Clock, CheckCircle, XCircle } from 'lucide-react';
-import { toast } from 'sonner';
+import { Users, Plus, Clock, LogOut, Loader2, Inbox, AlertTriangle, Phone, ClipboardList } from 'lucide-react';
+
+import { useStudentVisitors } from '@/app/student/visitors/StudentVisitors_hooks/useStudentVisitors';
+import type { StudentVisitor } from '@/app/student/student_lib/student_api/StudentTypes';
+
+function formatWhen(value: string | null): string {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
 
 export function StudentVisitorsMain() {
+  const { activeVisitors, pastVisitors, loading, submitting, error, addVisitor, checkOutVisitor } =
+    useStudentVisitors();
+
   const [showNewModal, setShowNewModal] = useState(false);
   const [activeTab, setActiveTab] = useState<'active' | 'history'>('active');
+  const [form, setForm] = useState({ visitorName: '', visitorPhone: '', purpose: '' });
 
-  const handleRequest = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    toast.success('Visitor request submitted for approval.');
+    await addVisitor({
+      visitorName: form.visitorName.trim(),
+      visitorPhone: form.visitorPhone.trim(),
+      purpose: form.purpose.trim(),
+    });
+    setForm({ visitorName: '', visitorPhone: '', purpose: '' });
     setShowNewModal(false);
   };
+
+  const list = activeTab === 'active' ? activeVisitors : pastVisitors;
+
+  const renderCard = (v: StudentVisitor, isActive: boolean) => (
+    <div
+      key={v.id}
+      className="p-4 border border-border rounded-[var(--radius-md)] hover:border-primary transition-colors flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-card"
+    >
+      <div className="min-w-0">
+        <div className="font-bold text-primary text-lg break-words">{v.visitorName}</div>
+        <div className="text-sm text-secondary flex items-center gap-1.5">
+          <Phone className="w-3 h-3" /> {v.visitorPhone || '—'}
+        </div>
+        <div className="text-xs text-secondary mt-1.5 flex items-center gap-1.5">
+          <ClipboardList className="w-3 h-3" /> {v.purpose || '—'}
+        </div>
+        <div className="text-xs text-secondary mt-2 flex items-center gap-1">
+          <Clock className="w-3 h-3" /> Entry: {formatWhen(v.checkInTime)}
+          {!isActive && v.checkOutTime && ` • Exit: ${formatWhen(v.checkOutTime)}`}
+        </div>
+      </div>
+      {isActive ? (
+        <button
+          onClick={() => void checkOutVisitor(v.id)}
+          className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 bg-warning-bg text-warning border border-warning/20 text-xs font-black uppercase tracking-wider rounded-full hover:bg-warning hover:text-white transition-colors"
+        >
+          <LogOut className="w-3 h-3" /> Check Out
+        </button>
+      ) : (
+        <span className="bg-page text-secondary text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-full border border-border shrink-0">
+          Completed
+        </span>
+      )}
+    </div>
+  );
 
   return (
     <div className="space-y-6 w-full">
@@ -23,141 +78,137 @@ export function StudentVisitorsMain() {
           <h1 className="text-[24px] font-black text-primary flex items-center gap-2">
             🤝 Visitor Management
           </h1>
-          <p className="text-sm text-secondary mt-1">Request guest entry and view visitor history.</p>
+          <p className="text-sm text-secondary mt-1">Log guest entries at your PG and review past visits.</p>
         </div>
-        <button onClick={() => setShowNewModal(true)} className="px-5 py-2.5 bg-primary text-white rounded-[var(--radius-md)] font-bold shadow-md flex items-center justify-center gap-2 hover:bg-primary-hover transition-colors whitespace-nowrap">
-          <Plus className="w-5 h-5"/> New Request
+        <button
+          onClick={() => setShowNewModal(true)}
+          className="px-5 py-2.5 bg-primary text-white rounded-[var(--radius-md)] font-bold shadow-md flex items-center justify-center gap-2 hover:bg-primary-hover transition-colors whitespace-nowrap"
+        >
+          <Plus className="w-5 h-5" /> Log Visitor Entry
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        
-        {/* Active Passes / QR Code */}
-        <div className="md:col-span-1 space-y-6">
-          <div className="bg-card border border-border rounded-[var(--radius-lg)] p-6 shadow-sm text-center">
-             <h3 className="font-black text-primary text-lg mb-4 border-b border-border pb-3 flex justify-center items-center gap-2">
-               <QrCode className="w-5 h-5 text-primary" /> Active Gate Pass
-             </h3>
-             <div className="bg-primary-subtle border border-primary/20 rounded-[var(--radius-md)] p-4 inline-block mx-auto mb-4">
-               <QrCode className="w-32 h-32 text-primary" />
-             </div>
-             <div className="text-sm font-bold text-primary mb-1">Visitor: Ramesh Patel</div>
-             <div className="text-xs text-secondary mb-3">Relation: Father</div>
-             <span className="inline-flex items-center gap-1 bg-success-bg text-success text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-full">
-               <CheckCircle className="w-3 h-3" /> Approved (Valid Today)
-             </span>
-             <p className="text-xs text-secondary mt-4 border-t border-border pt-3">Show this QR at the security gate for quick entry.</p>
-          </div>
+      {error && (
+        <div className="p-4 bg-danger-bg border border-danger/30 rounded-[var(--radius-md)] flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 text-danger mt-0.5" />
+          <span className="text-sm text-danger">{error}</span>
+        </div>
+      )}
+
+      <div className="bg-card border border-border rounded-[var(--radius-lg)] overflow-hidden shadow-sm h-full flex flex-col">
+        <div className="p-4 border-b border-border bg-input flex items-center gap-2">
+          <button
+            onClick={() => setActiveTab('active')}
+            className={`px-4 py-2 rounded-[var(--radius-md)] text-sm font-bold transition-colors ${
+              activeTab === 'active' ? 'bg-primary text-white shadow' : 'text-secondary hover:text-primary'
+            }`}
+          >
+            Active ({activeVisitors.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('history')}
+            className={`px-4 py-2 rounded-[var(--radius-md)] text-sm font-bold transition-colors ${
+              activeTab === 'history' ? 'bg-primary text-white shadow' : 'text-secondary hover:text-primary'
+            }`}
+          >
+            Past Visitors ({pastVisitors.length})
+          </button>
         </div>
 
-        {/* History / Requests */}
-        <div className="md:col-span-2 space-y-6">
-          <div className="bg-card border border-border rounded-[var(--radius-lg)] overflow-hidden shadow-sm h-full flex flex-col">
-            <div className="p-4 border-b border-border bg-input flex items-center gap-2">
-              <button onClick={()=>setActiveTab('active')} className={`px-4 py-2 rounded-[var(--radius-md)] text-sm font-bold transition-colors ${activeTab === 'active' ? 'bg-primary text-white shadow' : 'text-secondary hover:text-primary'}`}>
-                Active / Pending
-              </button>
-              <button onClick={()=>setActiveTab('history')} className={`px-4 py-2 rounded-[var(--radius-md)] text-sm font-bold transition-colors ${activeTab === 'history' ? 'bg-primary text-white shadow' : 'text-secondary hover:text-primary'}`}>
-                Past Visitors
-              </button>
+        <div className="p-4 flex-1 flex flex-col gap-4 overflow-y-auto max-h-[60vh]">
+          {loading ? (
+            <div className="p-8 text-center text-secondary motion-safe:animate-pulse flex items-center justify-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" /> Loading visitor records…
             </div>
-
-            <div className="p-4 flex-1 flex flex-col gap-4 overflow-y-auto">
-              {activeTab === 'active' ? (
-                <>
-                  <div className="p-4 border border-border rounded-[var(--radius-md)] hover:border-primary transition-colors flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                    <div>
-                      <div className="font-bold text-primary text-lg">Ramesh Patel</div>
-                      <div className="text-sm text-secondary">Relation: Father | Phone: +91 9876543210</div>
-                      <div className="text-xs text-secondary mt-2 flex items-center gap-1">
-                        <Clock className="w-3 h-3" /> Entry: Today, 5:00 PM
-                      </div>
-                    </div>
-                    <span className="bg-success-bg text-success text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-full border border-success/20">
-                      Approved
-                    </span>
-                  </div>
-                  <div className="p-4 border border-border rounded-[var(--radius-md)] hover:border-primary transition-colors flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                    <div>
-                      <div className="font-bold text-primary text-lg">Vikas Kumar</div>
-                      <div className="text-sm text-secondary">Relation: Friend | Phone: +91 9988776655</div>
-                      <div className="text-xs text-secondary mt-2 flex items-center gap-1">
-                        <Clock className="w-3 h-3" /> Entry: Tomorrow, 2:00 PM
-                      </div>
-                    </div>
-                    <span className="bg-warning-bg text-warning text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-full border border-warning/20">
-                      Pending
-                    </span>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="p-4 border border-border rounded-[var(--radius-md)] bg-input/50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 opacity-70">
-                    <div>
-                      <div className="font-bold text-primary text-lg line-through decoration-danger">Suresh Patel</div>
-                      <div className="text-sm text-secondary">Relation: Uncle</div>
-                      <div className="text-xs text-secondary mt-2">Visited on: 15/07/2024 (Out: 6:00 PM)</div>
-                    </div>
-                    <span className="bg-page text-secondary text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-full border border-border">
-                      Completed
-                    </span>
-                  </div>
-                </>
-              )}
+          ) : list.length === 0 ? (
+            <div className="text-center p-10 text-secondary">
+              <Inbox className="w-12 h-12 mx-auto mb-3 opacity-20" />
+              <div className="font-bold text-primary">
+                {activeTab === 'active' ? 'No visitors currently checked in' : 'No past visitor records'}
+              </div>
+              <div className="text-sm">
+                {activeTab === 'active'
+                  ? 'Use “Log Visitor Entry” when a guest arrives.'
+                  : 'Checked-out visitors will appear here.'}
+              </div>
             </div>
-          </div>
+          ) : (
+            list.map((v) => renderCard(v, activeTab === 'active'))
+          )}
         </div>
-
       </div>
 
       {showNewModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <form onSubmit={handleRequest} className="bg-card w-full max-w-md rounded-[var(--radius-lg)] shadow-2xl overflow-hidden animate-in fade-in zoom-in-95">
+          <form
+            onSubmit={handleSubmit}
+            className="bg-card w-full max-w-md rounded-[var(--radius-lg)] shadow-2xl overflow-hidden animate-in fade-in zoom-in-95"
+          >
             <div className="p-5 border-b border-border bg-input flex justify-between items-center">
               <h2 className="text-lg font-black text-primary flex items-center gap-2">
-                <Users className="w-5 h-5 text-primary" /> New Visitor Request
+                <Users className="w-5 h-5 text-primary" /> Log Visitor Entry
               </h2>
             </div>
-            
+
             <div className="p-6 space-y-4">
               <div>
-                <label className="block text-xs font-bold text-secondary uppercase mb-2">Visitor Name</label>
-                <input required type="text" placeholder="Full Name" className="w-full bg-input border border-border px-4 py-3 rounded-[var(--radius-md)] text-sm focus:outline-none focus:border-primary text-primary" />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-secondary uppercase mb-2">Relation</label>
-                  <select required className="w-full bg-input border border-border px-4 py-3 rounded-[var(--radius-md)] text-sm focus:outline-none focus:border-primary text-primary">
-                    <option value="">Select</option>
-                    <option value="parent">Parent</option>
-                    <option value="sibling">Sibling</option>
-                    <option value="friend">Friend</option>
-                    <option value="other">Other</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-secondary uppercase mb-2">Phone</label>
-                  <input required type="tel" placeholder="Mobile Number" className="w-full bg-input border border-border px-4 py-3 rounded-[var(--radius-md)] text-sm focus:outline-none focus:border-primary text-primary" />
-                </div>
+                <label className="block text-xs font-bold text-secondary uppercase mb-2">Visitor name</label>
+                <input
+                  required
+                  type="text"
+                  value={form.visitorName}
+                  onChange={(e) => setForm((p) => ({ ...p, visitorName: e.target.value }))}
+                  placeholder="Full name"
+                  className="w-full bg-input border border-border px-4 py-3 rounded-[var(--radius-md)] text-sm focus:outline-none focus:border-primary text-primary"
+                />
               </div>
               <div>
-                <label className="block text-xs font-bold text-secondary uppercase mb-2">Expected Date & Time</label>
-                <input required type="datetime-local" className="w-full bg-input border border-border px-4 py-3 rounded-[var(--radius-md)] text-sm focus:outline-none focus:border-primary text-primary" />
+                <label className="block text-xs font-bold text-secondary uppercase mb-2">Phone</label>
+                <input
+                  required
+                  type="tel"
+                  value={form.visitorPhone}
+                  onChange={(e) => setForm((p) => ({ ...p, visitorPhone: e.target.value }))}
+                  placeholder="Mobile number"
+                  className="w-full bg-input border border-border px-4 py-3 rounded-[var(--radius-md)] text-sm focus:outline-none focus:border-primary text-primary"
+                />
               </div>
               <div>
-                <label className="block text-xs font-bold text-secondary uppercase mb-2">Purpose of Visit</label>
-                <input required type="text" placeholder="E.g., Dropping off luggage" className="w-full bg-input border border-border px-4 py-3 rounded-[var(--radius-md)] text-sm focus:outline-none focus:border-primary text-primary" />
+                <label className="block text-xs font-bold text-secondary uppercase mb-2">Purpose of visit</label>
+                <input
+                  required
+                  type="text"
+                  value={form.purpose}
+                  onChange={(e) => setForm((p) => ({ ...p, purpose: e.target.value }))}
+                  placeholder="E.g., Dropping off luggage"
+                  className="w-full bg-input border border-border px-4 py-3 rounded-[var(--radius-md)] text-sm focus:outline-none focus:border-primary text-primary"
+                />
               </div>
+              <p className="text-[11px] text-secondary">
+                The entry time is recorded automatically. Use “Check Out” when the visitor leaves.
+              </p>
             </div>
-            
+
             <div className="p-5 border-t border-border bg-input flex gap-3">
-              <button type="button" onClick={() => setShowNewModal(false)} className="flex-1 py-3 bg-page text-primary rounded-[var(--radius-md)] font-bold border border-border hover:bg-border transition-colors text-sm">Cancel</button>
-              <button type="submit" className="flex-1 py-3 bg-primary text-white rounded-[var(--radius-md)] font-bold shadow-md hover:bg-primary-hover transition-colors text-sm">Submit Request</button>
+              <button
+                type="button"
+                onClick={() => setShowNewModal(false)}
+                className="flex-1 py-3 bg-page text-primary rounded-[var(--radius-md)] font-bold border border-border hover:bg-border transition-colors text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="flex-1 py-3 bg-primary text-white rounded-[var(--radius-md)] font-bold shadow-md hover:bg-primary-hover transition-colors text-sm flex items-center justify-center gap-2 disabled:opacity-60"
+              >
+                {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
+                {submitting ? 'Saving…' : 'Save Entry'}
+              </button>
             </div>
           </form>
         </div>
       )}
-
     </div>
   );
 }

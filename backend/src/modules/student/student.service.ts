@@ -2,6 +2,45 @@ import { prisma } from '../../db';
 import { StayStatus, SOSStatus, BedStatus, InvoiceStatus, PaymentMethod, PaymentStatus, ComplaintStatus, AttendanceStatus } from '@prisma/client';
 
 export class StudentService {
+  /**
+   * Writes a real NotificationLog row for the parent account linked to a student's
+   * TenantProfile (`TenantProfile.parentProfileId`). This backs the "Parent Alert"
+   * indicators shown on the student's Gate Attendance screen and makes
+   * `GET /api/v1/parent/notifications` return genuine, persisted records instead of
+   * always being empty.
+   *
+   * Never throws — a notification failure must not fail the student's action.
+   * Returns the number of parents notified.
+   */
+  static async notifyLinkedParents(
+    tenantProfileId: string | null | undefined,
+    payload: { type: string; title: string; message: string }
+  ): Promise<number> {
+    if (!tenantProfileId) return 0;
+    try {
+      const tenantProfile = await prisma.tenantProfile.findUnique({
+        where: { id: tenantProfileId },
+        include: { parentProfile: { select: { userId: true } } },
+      });
+      const parentUserId = tenantProfile?.parentProfile?.userId;
+      if (!parentUserId) return 0;
+
+      await prisma.notificationLog.create({
+        data: {
+          userId: parentUserId,
+          type: payload.type,
+          title: payload.title,
+          message: payload.message,
+          isRead: false,
+        },
+      });
+      return 1;
+    } catch (error) {
+      console.error('[StudentService.notifyLinkedParents] Failed to notify parent:', error);
+      return 0;
+    }
+  }
+
   // ============================================================
   // PROFILE & ROOM
   // ============================================================
@@ -55,6 +94,49 @@ export class StudentService {
       ? await prisma.policeVerification.findUnique({ where: { tenantId: student.tenantProfile.id } })
       : null;
 
+    // Outstanding dues across ALL of the student's stays (real invoice data)
+    const allStays = student.tenantProfile
+      ? await prisma.tenantStay.findMany({
+          where: { tenantId: student.tenantProfile.id },
+          select: { id: true },
+        })
+      : [];
+    const allStayIds = allStays.map(s => s.id);
+    const unpaidInvoices = allStayIds.length
+      ? await prisma.invoice.findMany({
+          where: {
+            stayId: { in: allStayIds },
+            status: { notIn: [InvoiceStatus.PAID, InvoiceStatus.CANCELLED] },
+          },
+        })
+      : [];
+    const outstandingDues = unpaidInvoices.reduce(
+      (sum, inv) => sum + (inv.totalAmount - inv.paidAmount),
+      0
+    );
+
+    // Linked parent account (created during onboarding, if any)
+    const linkedParent = student.tenantProfile?.parentProfileId
+      ? await prisma.parentProfile.findUnique({
+          where: { id: student.tenantProfile.parentProfileId },
+          include: { user: { select: { fullName: true, phone: true, email: true } } },
+        })
+      : null;
+
+    // Mess facility is derived from real menu configuration, never guessed client-side.
+    // A facility exists when the owning PG has published a weekly FoodMenu or the
+    // property has structured MessMenu rows.
+    let hasMessFacility = false;
+    if (activeStay) {
+      const [ownerFoodMenu, propertyMessMenuCount] = await Promise.all([
+        activeStay.property?.ownerId
+          ? prisma.foodMenu.findUnique({ where: { ownerId: activeStay.property.ownerId } })
+          : Promise.resolve(null),
+        prisma.messMenu.count({ where: { propertyId: activeStay.propertyId } }),
+      ]);
+      hasMessFacility = Boolean(ownerFoodMenu) || propertyMessMenuCount > 0;
+    }
+
     return {
       student: {
         id: student.id,
@@ -63,6 +145,9 @@ export class StudentService {
         phone: student.phone,
         avatarUrl: student.avatarUrl,
         role: student.role,
+        ownerId: student.ownerId,
+        mustChangePassword: student.mustChangePassword,
+        createdAt: student.createdAt,
       },
       profile: student.tenantProfile,
       stay: activeStay,
@@ -73,6 +158,10 @@ export class StudentService {
       roommates,
       deposit,
       policeVerification,
+      outstandingDues,
+      unpaidInvoicesCount: unpaidInvoices.length,
+      hasMessFacility,
+      linkedParent,
     };
   }
 
@@ -147,11 +236,12 @@ export class StudentService {
       },
       roommates: (activeStay.bed?.room?.beds || [])
         .filter(b => b.id !== activeStay.bedId)
-        .flatMap(b => b.stays)
-        .map(s => ({
+        .flatMap(b => b.stays.map(s => ({
           name: s.tenant?.user?.fullName || 'Roommate',
           phone: s.tenant?.user?.phone || '',
-        })),
+          bedNumber: b.bedNumber,
+          roomNumber: activeStay.bed?.room?.roomNumber ?? null,
+        }))),
     };
   }
 
@@ -246,8 +336,11 @@ export class StudentService {
     });
     if (!stay) return [];
 
+    // SECURITY: a student must only ever see their OWN complaints. Previously this
+    // query was scoped only by property/owner, which leaked every other resident's
+    // complaints in the same PG.
     return prisma.complaint.findMany({
-      where: { propertyId: stay.propertyId, ownerId: stay.ownerId },
+      where: { createdByUserId: userId },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -269,10 +362,11 @@ export class StudentService {
     const priorityMap: Record<string, any> = { LOW: 'LOW', MEDIUM: 'MEDIUM', HIGH: 'HIGH', URGENT: 'URGENT' };
     const priority = priorityMap[(data.priority || 'MEDIUM').toUpperCase()] || 'MEDIUM';
 
-    return prisma.complaint.create({
+    const complaint = await prisma.complaint.create({
       data: {
         ownerId: stay.ownerId,
         propertyId: stay.propertyId,
+        createdByUserId: userId,
         category: data.category,
         title: data.title,
         description: data.description,
@@ -280,6 +374,14 @@ export class StudentService {
         status: ComplaintStatus.OPEN,
       },
     });
+
+    await StudentService.notifyLinkedParents(student.tenantProfile.id, {
+      type: 'COMPLAINT',
+      title: '📝 Complaint Raised',
+      message: `${student.fullName} raised a ${priority.toLowerCase()} priority complaint: "${data.title}".`,
+    });
+
+    return complaint;
   }
 
   // ============================================================
@@ -468,7 +570,7 @@ export class StudentService {
     if (!data.visitorPhone?.trim()) throw new Error('Visitor phone is required');
     if (!data.purpose?.trim()) throw new Error('Visit purpose is required');
 
-    return prisma.visitorLog.create({
+    const visitor = await prisma.visitorLog.create({
       data: {
         propertyId: stay.propertyId,
         tenantId: student.tenantProfile.id,
@@ -478,6 +580,14 @@ export class StudentService {
         checkInTime: new Date(),
       },
     });
+
+    await StudentService.notifyLinkedParents(student.tenantProfile.id, {
+      type: 'VISITOR',
+      title: '👥 Visitor Logged at PG',
+      message: `${student.fullName} registered a visitor: ${data.visitorName.trim()} (${data.visitorPhone.trim()}). Purpose: ${data.purpose.trim()}`,
+    });
+
+    return visitor;
   }
 
   static async checkOutVisitor(userId: string, visitorLogId: string) {
@@ -523,7 +633,7 @@ export class StudentService {
     if (end < start) throw new Error('End date cannot be before start date');
     if (!data.reason?.trim()) throw new Error('Reason is required');
 
-    return prisma.leaveRequest.create({
+    const leave = await prisma.leaveRequest.create({
       data: {
         studentId: userId,
         propertyId: stay.propertyId,
@@ -533,6 +643,14 @@ export class StudentService {
         status: 'PENDING',
       },
     });
+
+    await StudentService.notifyLinkedParents(student.tenantProfile.id, {
+      type: 'LEAVE_REQUEST',
+      title: ' Leave / Outing Request Submitted',
+      message: `${student.fullName} requested leave from ${start.toLocaleDateString('en-IN')} to ${end.toLocaleDateString('en-IN')}. Reason: ${data.reason.trim()}`,
+    });
+
+    return leave;
   }
 
   static async cancelLeave(userId: string, leaveId: string) {
@@ -580,6 +698,13 @@ export class StudentService {
         message: `Student ${student.fullName} has triggered an SOS alert from ${stay.propertyId}.`,
         isRead: false,
       },
+    });
+
+    // Escalate to the linked parent account as well
+    await StudentService.notifyLinkedParents(student.tenantProfile.id, {
+      type: 'SOS_ALERT',
+      title: '🚨 Emergency SOS Triggered',
+      message: `Your child ${student.fullName} has triggered an emergency SOS alert. The PG management team has been alerted.`,
     });
 
     return sos;
@@ -671,15 +796,37 @@ export class StudentService {
       }).catch(() => {}); // Silently handle unique constraint
     }
 
-    return gateLog;
+    // Notify the linked parent account so the "Parent Alert" column on the student
+    // screen reflects a real, persisted notification rather than a UI claim.
+    const parentNotified = await StudentService.notifyLinkedParents(user.tenantProfile.id, {
+      type: 'GATE_ATTENDANCE',
+      title: entryType === 'ENTRY' ? '🟢 Checked In at PG' : '🔴 Left PG Campus',
+      message:
+        entryType === 'ENTRY'
+          ? `${user.fullName} checked in${isLate ? ' (after curfew)' : ''}. ${data.reason ? `Reason: ${data.reason}` : ''}`.trim()
+          : `${user.fullName} checked out. ${data.reason ? `Reason: ${data.reason}` : ''}${data.destination ? ` Destination: ${data.destination}.` : ''}${data.expectedReturnTime ? ` Expected return: ${data.expectedReturnTime}.` : ''}`.trim(),
+    });
+
+    return { ...gateLog, parentNotified: parentNotified > 0 };
   }
 
   static async getGateLogs(userId: string) {
-    return prisma.gateLog.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-    });
+    const [logs, student] = await Promise.all([
+      prisma.gateLog.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+      }),
+      prisma.user.findUnique({
+        where: { id: userId },
+        include: { tenantProfile: { include: { parentProfile: { select: { id: true } } } } },
+      }),
+    ]);
+
+    // A gate log is "sent to parent" when the resident has a linked parent profile —
+    // recordGateAttendance writes a NotificationLog for exactly that parent.
+    const parentNotified = Boolean(student?.tenantProfile?.parentProfile?.id);
+    return logs.map((log) => ({ ...log, parentNotified }));
   }
 
   // ============================================================
@@ -779,7 +926,7 @@ export class StudentService {
     const stayIds = stays.map((s: { id: string }) => s.id);
 
     const [complaints, leaves, gateLogs, sos, invoices] = await Promise.all([
-      prisma.complaint.findMany({ where: { ownerId: student.ownerId || undefined }, orderBy: { createdAt: 'desc' }, take: 20 }),
+      prisma.complaint.findMany({ where: { createdByUserId: userId }, orderBy: { createdAt: 'desc' }, take: 20 }),
       prisma.leaveRequest.findMany({ where: { studentId: userId }, orderBy: { createdAt: 'desc' }, take: 20 }),
       prisma.gateLog.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, take: 30 }),
       prisma.sOSAlert.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, take: 10 }),

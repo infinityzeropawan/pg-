@@ -2,17 +2,44 @@
 
 // RESPONSIBILITY: Renders the Student Profile UI layer.
 // DATA FLOW: useStudentProfile.ts -> StudentProfileMain.tsx
+// Every value displayed comes from the profile payload fetched from Neon via
+// GET /api/v1/student/profile. The editable fields persist through
+// PUT /api/v1/student/profile (TenantProfile columns).
 
 import Link from 'next/link';
-import { User, Shield, Star, Award, TrendingUp, TrendingDown, Phone, Mail, MapPin, Home, FileText, CheckCircle, Clock, AlertCircle, Edit, Settings } from 'lucide-react';
+import {
+  User, Shield, Phone, Mail, MapPin, FileText, Briefcase, IdCard,
+  Loader2, ExternalLink, GraduationCap, ReceiptText,
+} from 'lucide-react';
 import { STUDENT_ROUTES } from '@/app/student/student_url_config';
+import { formatPaise } from '@/lib/utils/money';
 
 import { useStudentProfile } from '@/app/student/profile/StudentProfile_hooks/useStudentProfile';
 
 export function StudentProfileMain() {
-  const { profile, session, formData, setFormData, handleSubmit } = useStudentProfile();
+  const { profile, formData, setFormData, handleSubmit, saving } = useStudentProfile();
 
-  if (!profile) return <div className="p-4 motion-safe:animate-pulse">Loading...</div>;
+  if (!profile) return <div className="p-4 motion-safe:animate-pulse text-secondary">Loading profile…</div>;
+
+  const idNumber = profile.idProofNumber || '';
+  const maskedId = idNumber.length > 4 ? `•••• •••• ${idNumber.slice(-4)}` : idNumber || 'Not provided';
+  const dues = Number(profile.duesAmount || 0);
+
+  const field = (
+    label: string,
+    key: keyof typeof formData,
+    props: React.InputHTMLAttributes<HTMLInputElement> = {},
+  ) => (
+    <div>
+      <label className="block text-xs font-bold text-secondary uppercase mb-1">{label}</label>
+      <input
+        value={formData[key]}
+        onChange={(e) => setFormData((prev) => ({ ...prev, [key]: e.target.value }))}
+        className="w-full bg-input border border-border rounded-[var(--radius-md)] px-3 py-2 text-sm text-primary focus:outline-none focus:border-primary"
+        {...props}
+      />
+    </div>
+  );
 
   return (
     <div className="space-y-6 w-full">
@@ -20,187 +47,134 @@ export function StudentProfileMain() {
         <h1 className="text-[24px] font-black text-primary flex items-center gap-2">
           👤 My Profile
         </h1>
+        <p className="text-sm text-secondary mt-1">Your registered details and emergency contact.</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Left Column: Photo & Quick Info */}
+        {/* Left Column: Identity & KYC */}
         <div className="md:col-span-1 space-y-6">
-          <div className="bg-card border border-border rounded-[var(--radius-lg)] p-6 text-center shadow-sm relative overflow-hidden">
-            <div className="w-24 h-24 bg-primary-subtle text-primary rounded-[var(--radius-full)] mx-auto flex items-center justify-center text-4xl font-black border-4 border-white shadow-md mb-4 relative">
-              {session?.name?.charAt(0) || 'S'}
-              <button className="absolute bottom-0 right-0 p-1.5 bg-primary text-white rounded-full hover:bg-primary-hover shadow transition-colors">
-                <Edit className="w-3 h-3" />
-              </button>
+          <div className="bg-card border border-border rounded-[var(--radius-lg)] p-6 text-center shadow-sm">
+            <div className="w-24 h-24 bg-primary-subtle text-primary rounded-[var(--radius-full)] mx-auto flex items-center justify-center text-4xl font-black border-4 border-white shadow-md mb-4">
+              {profile.name?.charAt(0)?.toUpperCase() || <User className="w-8 h-8" />}
             </div>
-            <h2 className="text-xl font-black text-primary">{session?.name || 'Rahul Sharma'}</h2>
-            <p className="text-sm font-medium text-secondary mb-4">{session?.email || 'rahul.sharma@email.com'}</p>
-            
+            <h2 className="text-xl font-black text-primary">{profile.name}</h2>
+            <p className="text-sm font-medium text-secondary mb-4">{profile.email}</p>
+
             <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-primary-subtle rounded-[var(--radius-full)] text-xs font-bold text-primary mb-4">
-              <span>Room {(profile as any).roomNumber || '203'}</span>
+              <span>Room {profile.roomNumber || '—'}</span>
               <span className="w-1.5 h-1.5 rounded-full bg-primary/30"></span>
-              <span>Bed {(profile as any).bedId || 'B'}</span>
+              <span>Bed {profile.bedCode || profile.bedId || '—'}</span>
             </div>
 
-            <div className="w-full">
-              <button className="w-full bg-input text-primary font-bold text-sm py-2 rounded-[var(--radius-md)] hover:bg-border transition-colors flex items-center justify-center gap-2">
-                <Edit className="w-4 h-4" /> Edit Profile
-              </button>
+            <div className="grid grid-cols-1 gap-2 text-sm text-left">
+              <div className="flex items-center gap-2 text-primary">
+                <Phone className="w-4 h-4 text-secondary" /> {profile.phone || '—'}
+              </div>
+              <div className="flex items-center gap-2 text-primary">
+                <Mail className="w-4 h-4 text-secondary" /> <span className="break-all">{profile.email}</span>
+              </div>
+              <div className="flex items-center gap-2 text-primary">
+                <GraduationCap className="w-4 h-4 text-secondary" />
+                {profile.stayStatus ? profile.stayStatus.replace(/_/g, ' ').toLowerCase() : 'No active stay'}
+              </div>
             </div>
           </div>
 
+          {/* KYC — real TenantProfile ID-proof columns */}
           <div className="bg-card border border-border rounded-[var(--radius-lg)] p-5 shadow-sm">
-             <h3 className="font-bold text-primary mb-3 flex items-center gap-2 border-b border-border pb-2">
-               <Shield className="w-4 h-4 text-secondary" /> Emergency Contact
-             </h3>
-             <div className="space-y-3 text-sm">
-               <div>
-                 <div className="text-xs font-bold text-secondary uppercase">Name</div>
-                 <div className="font-medium text-primary">{(formData as any).parentName || 'Mr. Suresh Sharma (Father)'}</div>
-               </div>
-               <div>
-                 <div className="text-xs font-bold text-secondary uppercase">Mobile</div>
-                 <div className="font-medium text-primary flex items-center gap-2">
-                   <Phone className="w-3 h-3 text-secondary" /> {(formData as any).parentPhone || '+91 9876543211'}
-                 </div>
-               </div>
-               <div>
-                 <div className="text-xs font-bold text-secondary uppercase">Address</div>
-                 <div className="font-medium text-primary flex items-center gap-2">
-                   <MapPin className="w-3 h-3 text-secondary" /> 456, Village Road, Patna
-                 </div>
-               </div>
-             </div>
+            <h3 className="font-bold text-primary mb-3 flex items-center gap-2 border-b border-border pb-2">
+              <Shield className="w-4 h-4 text-secondary" /> ID Verification
+            </h3>
+            <div className="space-y-3 text-sm">
+              <div>
+                <div className="text-xs font-bold text-secondary uppercase">ID type</div>
+                <div className="font-medium text-primary flex items-center gap-2">
+                  <IdCard className="w-3.5 h-3.5 text-secondary" /> {profile.idProofType || '—'}
+                </div>
+              </div>
+              <div>
+                <div className="text-xs font-bold text-secondary uppercase">ID number</div>
+                <div className="font-medium text-primary">{maskedId}</div>
+              </div>
+            </div>
+            <Link
+              href={STUDENT_ROUTES.DOCUMENTS}
+              className="mt-4 w-full inline-flex items-center justify-center gap-2 bg-input text-primary font-bold text-sm py-2 rounded-[var(--radius-md)] hover:bg-border transition-colors"
+            >
+              <FileText className="w-4 h-4" /> Manage uploaded documents
+              <ExternalLink className="w-3.5 h-3.5" />
+            </Link>
           </div>
         </div>
 
-        {/* Right Column: Details & KYC */}
+        {/* Right Column: Editable details + account facts */}
         <div className="md:col-span-2 space-y-6">
-          <div className="bg-card border border-border rounded-[var(--radius-lg)] p-6 shadow-sm">
-            <h3 className="font-black text-primary text-lg mb-4 border-b border-border pb-3">Personal Information</h3>
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <span className="block text-xs font-bold text-secondary uppercase mb-1">Gender</span>
-                <span className="font-medium text-primary">Male</span>
-              </div>
-              <div>
-                <span className="block text-xs font-bold text-secondary uppercase mb-1">Age</span>
-                <span className="font-medium text-primary">22</span>
-              </div>
-              <div>
-                <span className="block text-xs font-bold text-secondary uppercase mb-1">Date of Birth</span>
-                <span className="font-medium text-primary">15th May 2000</span>
-              </div>
-              <div>
-                <span className="block text-xs font-bold text-secondary uppercase mb-1">Blood Group</span>
-                <span className="font-medium text-danger">O+</span>
-              </div>
-              <div>
-                <span className="block text-xs font-bold text-secondary uppercase mb-1">Nationality</span>
-                <span className="font-medium text-primary">Indian</span>
-              </div>
-              <div>
-                <span className="block text-xs font-bold text-secondary uppercase mb-1">Religion</span>
-                <span className="font-medium text-primary">Hindu</span>
-              </div>
-            </div>
-
-            <h3 className="font-black text-primary text-lg mt-6 mb-4 border-b border-border pb-3">Contact Details</h3>
-            <div className="space-y-3 text-sm">
-              <div className="flex items-center gap-3">
-                <Phone className="w-4 h-4 text-secondary" />
-                <span className="font-medium text-primary">{(formData as any).phone || '+91 9876543210'}</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <Mail className="w-4 h-4 text-secondary" />
-                <span className="font-medium text-primary">{session?.email || 'rahul.sharma@email.com'}</span>
-              </div>
-              <div className="flex items-start gap-3">
-                <MapPin className="w-4 h-4 text-secondary mt-0.5" />
-                <span className="font-medium text-primary">123, Park Street, Kolkata</span>
-              </div>
-              <div className="flex items-start gap-3">
-                <Home className="w-4 h-4 text-secondary mt-0.5" />
-                <span className="font-medium text-primary">Permanent: 456, Village Road, Patna</span>
-              </div>
-            </div>
-          </div>
-
-          {/* KYC Documents */}
-          <div className="bg-card border border-border rounded-[var(--radius-lg)] p-6 shadow-sm">
-            <h3 className="font-black text-primary text-lg mb-4 flex items-center gap-2">
-              📋 KYC Documents
+          <form
+            onSubmit={(e) => void handleSubmit(e)}
+            className="bg-card border border-border rounded-[var(--radius-lg)] p-6 shadow-sm"
+          >
+            <h3 className="font-black text-primary text-lg mb-4 border-b border-border pb-3">
+              Editable Details
             </h3>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm text-left">
-                <thead className="bg-input text-secondary text-xs uppercase font-bold">
-                  <tr>
-                    <th className="px-4 py-3 rounded-tl-[var(--radius-sm)]">Document</th>
-                    <th className="px-4 py-3">Status</th>
-                    <th className="px-4 py-3">Uploaded</th>
-                    <th className="px-4 py-3 rounded-tr-[var(--radius-sm)] text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  <tr className="hover:bg-input transition-colors">
-                    <td className="px-4 py-3 font-medium text-primary flex items-center gap-2">
-                      <FileText className="w-4 h-4 text-secondary" /> Aadhar Card
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="inline-flex items-center gap-1 text-success font-bold text-xs bg-success-bg px-2 py-1 rounded">
-                        <CheckCircle className="w-3 h-3" /> Verified
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-secondary">01/08/2024</td>
-                    <td className="px-4 py-3 text-right">
-                      <button className="text-primary hover:underline font-bold text-xs mr-3">View</button>
-                      <button className="text-secondary hover:text-primary font-bold text-xs">Update</button>
-                    </td>
-                  </tr>
-                  <tr className="hover:bg-input transition-colors">
-                    <td className="px-4 py-3 font-medium text-primary flex items-center gap-2">
-                      <FileText className="w-4 h-4 text-secondary" /> PAN Card
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="inline-flex items-center gap-1 text-success font-bold text-xs bg-success-bg px-2 py-1 rounded">
-                        <CheckCircle className="w-3 h-3" /> Verified
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-secondary">01/08/2024</td>
-                    <td className="px-4 py-3 text-right">
-                      <button className="text-primary hover:underline font-bold text-xs mr-3">View</button>
-                      <button className="text-secondary hover:text-primary font-bold text-xs">Update</button>
-                    </td>
-                  </tr>
-                  <tr className="hover:bg-input transition-colors">
-                    <td className="px-4 py-3 font-medium text-primary flex items-center gap-2">
-                      <FileText className="w-4 h-4 text-secondary" /> Address Proof
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="inline-flex items-center gap-1 text-warning font-bold text-xs bg-warning-bg px-2 py-1 rounded">
-                        <Clock className="w-3 h-3" /> Pending
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-secondary">-</td>
-                    <td className="px-4 py-3 text-right">
-                      <button className="text-primary hover:underline font-bold text-xs">Upload</button>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {field('Emergency contact name', 'emergencyContactName', { required: true, placeholder: 'e.g. Suresh Sharma (Father)' })}
+              {field('Emergency contact phone', 'emergencyContactPhone', { required: true, placeholder: 'e.g. +91 98765 43210' })}
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-bold text-secondary uppercase mb-1">Permanent address</label>
+                <textarea
+                  value={formData.permanentAddress}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, permanentAddress: e.target.value }))}
+                  rows={3}
+                  className="w-full bg-input border border-border rounded-[var(--radius-md)] px-3 py-2 text-sm text-primary focus:outline-none focus:border-primary"
+                />
+              </div>
+              {field('College / Company', 'collegeOrCompany', { placeholder: 'e.g. St. Xavier\u2019s College' })}
             </div>
-          </div>
-          
-          <div className="bg-card border border-border rounded-[var(--radius-lg)] p-5 shadow-sm flex items-center justify-between">
-             <div className="flex items-center gap-3">
-               <Settings className="w-5 h-5 text-primary" />
-               <div>
-                 <div className="font-bold text-primary">⚙️ Preferences & Settings</div>
-                 <div className="text-xs text-secondary">Manage password, privacy, and notifications</div>
-               </div>
-             </div>
-             <Link href={STUDENT_ROUTES.SETTINGS} className="px-4 py-2 bg-input text-primary font-bold text-sm rounded-[var(--radius-md)] hover:bg-border transition-colors">
-               Go to Settings &rarr;
-             </Link>
+            <div className="mt-5 flex items-center gap-3">
+              <button
+                type="submit"
+                disabled={saving}
+                className="px-5 py-2.5 bg-primary text-white font-bold text-sm rounded-[var(--radius-md)] hover:bg-primary-hover disabled:opacity-60 transition-colors flex items-center gap-2"
+              >
+                {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+                {saving ? 'Saving…' : 'Save Changes'}
+              </button>
+              <p className="text-xs text-secondary">Changes are saved to your PG record immediately.</p>
+            </div>
+          </form>
+
+          <div className="bg-card border border-border rounded-[var(--radius-lg)] p-6 shadow-sm">
+            <h3 className="font-black text-primary text-lg mb-4 border-b border-border pb-3">Account Facts</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+              <div>
+                <span className="block text-xs font-bold text-secondary uppercase mb-1">Current address</span>
+                <span className="font-medium text-primary flex items-start gap-2">
+                  <MapPin className="w-4 h-4 text-secondary mt-0.5 shrink-0" />
+                  {profile.permanentAddress || '—'}
+                </span>
+              </div>
+              <div>
+                <span className="block text-xs font-bold text-secondary uppercase mb-1">College / Company</span>
+                <span className="font-medium text-primary flex items-start gap-2">
+                  <Briefcase className="w-4 h-4 text-secondary mt-0.5 shrink-0" />
+                  {profile.collegeOrCompany || '—'}
+                </span>
+              </div>
+              <div>
+                <span className="block text-xs font-bold text-secondary uppercase mb-1">Member since</span>
+                <span className="font-medium text-primary">
+                  {profile.createdAt ? new Date(profile.createdAt).toLocaleDateString('en-IN') : '—'}
+                </span>
+              </div>
+              <div>
+                <span className="block text-xs font-bold text-secondary uppercase mb-1">Outstanding dues</span>
+                <span className={`font-medium flex items-center gap-2 ${dues > 0 ? 'text-danger' : 'text-success'}`}>
+                  <ReceiptText className="w-4 h-4" />
+                  {formatPaise(dues)}
+                  {profile.unpaidInvoicesCount > 0 && ` (${profile.unpaidInvoicesCount} unpaid)`}
+                </span>
+              </div>
+            </div>
           </div>
         </div>
       </div>

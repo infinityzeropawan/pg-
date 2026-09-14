@@ -1,216 +1,128 @@
 'use client';
 
-import { useState } from 'react';
+// RESPONSIBILITY: Public demo/preview landing page.
+//
+// SECURITY NOTE: This page deliberately does NOT contain credentials and does NOT
+// perform any authentication. An earlier version shipped working seed credentials
+// (e.g. student3@gmail.com) in the client bundle and, when the backend was unreachable,
+// fabricated a session in localStorage with an OWNER role — fully bypassing the
+// client-side route guards. Both behaviours are removed.
+
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { 
-  Building2, UserCheck, Users, User, ArrowRight, 
-  Sparkles, ExternalLink, CheckCircle, MonitorPlay
-} from 'lucide-react';
+import { ArrowRight, Building2, ShieldCheck, UserCheck, Users, User, Sparkles } from 'lucide-react';
 
 import { HomeHeader } from '@/components/home/HomeHeader';
 import { HomeFooter } from '@/components/home/HomeFooter';
-import { STORAGE_KEYS } from '@/lib/storage/keys';
+
+const PORTALS = [
+  {
+    title: 'PG Owner Portal',
+    subtitle: 'Multi-property P&L, occupancy analytics, rent collection & maintenance.',
+    icon: Building2,
+    loginHref: '/owner/login',
+  },
+  {
+    title: 'Branch Manager Portal',
+    subtitle: 'Property operations, rooms & beds, staff attendance, tenant onboarding.',
+    icon: UserCheck,
+    loginHref: '/manager/login',
+  },
+  {
+    title: 'Student Resident App',
+    subtitle: 'Rent & dues, mess menu & ordering, QR gate movements, SOS alerts.',
+    icon: User,
+    loginHref: '/student/login',
+  },
+  {
+    title: 'Parent Safety Portal',
+    subtitle: "Child presence, gate in/out logs, fee payment & safety feed.",
+    icon: Users,
+    loginHref: '/parent/login',
+  },
+];
+
+const HIGHLIGHTS = [
+  {
+    title: 'Real production schema',
+    description: 'Every dashboard reads from PostgreSQL through the Prisma REST API.',
+    icon: ShieldCheck,
+  },
+  {
+    title: 'Guided walkthrough',
+    description: 'Our team will walk you through the workflows relevant to your property.',
+    icon: Sparkles,
+  },
+  {
+    title: 'Request credentials',
+    description: 'We issue sandbox accounts on request — credentials are never published here.',
+    icon: ArrowRight,
+  },
+];
 
 export default function DemoPage() {
-  const router = useRouter();
-  const [loadingRole, setLoadingRole] = useState<string | null>(null);
-
-  const demoAccounts = [
-    {
-      role: 'owner',
-      title: 'PG Owner Portal',
-      subtitle: 'Multi-property P&L, Occupancy Analytics, Rent Collection & Maintenance',
-      icon: Building2,
-      email: 'owner@gmail.com',
-      password: 'Owner3@123',
-      color: 'from-blue-500/20 to-indigo-500/10 border-blue-500/30 text-blue-600',
-      badge: 'Full Business Suite',
-      href: '/owner/dashboard',
-      loginApiRole: 'OWNER',
-    },
-    {
-      role: 'manager',
-      title: 'Branch Manager Portal',
-      subtitle: 'Property Operations, Room Beds, Staff Attendance, Tenant Onboarding',
-      icon: UserCheck,
-      email: 'manager3@gmail.com',
-      password: 'Manager@123',
-      color: 'from-emerald-500/20 to-teal-500/10 border-emerald-500/30 text-emerald-600',
-      badge: 'Branch Operations',
-      href: '/manager/dashboard',
-      loginApiRole: 'MANAGER',
-    },
-    {
-      role: 'student',
-      title: 'Student Resident App',
-      subtitle: 'Room Rent Dues, Mess Menu & Ordering, QR Gate Movements, SOS Alert',
-      icon: User,
-      email: 'student3@gmail.com',
-      password: 'Student@123',
-      color: 'from-purple-500/20 to-pink-500/10 border-purple-500/30 text-purple-600',
-      badge: 'Resident Mobile UI',
-      href: '/student/dashboard',
-      loginApiRole: 'STUDENT',
-    },
-    {
-      role: 'parent',
-      title: 'Parent Safety Portal',
-      subtitle: 'Child Live Location Presence, Gate In/Out Logs, Fee Payment & Safety Feed',
-      icon: Users,
-      email: 'peter.m@example.com',
-      password: 'Parent@123',
-      color: 'from-cyan-500/20 to-blue-500/10 border-cyan-500/30 text-cyan-600',
-      badge: 'Child Safety & Fees',
-      href: '/parent/dashboard',
-      loginApiRole: 'PARENT',
-    },
-  ];
-
-  const handleLaunchDemo = async (acc: typeof demoAccounts[0]) => {
-    setLoadingRole(acc.role);
-    const roleKey = acc.role.toLowerCase();
-
-    try {
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api/v1';
-      const res = await fetch(`${API_URL}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: acc.email, password: acc.password, expectedRole: acc.loginApiRole }),
-      });
-      const json = await res.json();
-      if (json.success && json.data) {
-        if (typeof window !== 'undefined') {
-          const user = json.data.user;
-          const sessionUser = {
-            id: user.id,
-            role: roleKey,
-            name: user.name || acc.title,
-            email: user.email || acc.email,
-            ownerId: user.ownerId || 'demo_owner',
-            propertyId: user.propertyId || 'demo_prop',
-            mustChangePassword: false
-          };
-          localStorage.setItem(STORAGE_KEYS.CURRENT_SESSION, JSON.stringify(sessionUser));
-          localStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, json.data.accessToken);
-          localStorage.setItem('access_token', json.data.accessToken);
-          localStorage.setItem('refresh_token', json.data.refreshToken);
-        }
-        router.push(acc.href);
-        return;
-      }
-    } catch (e) {
-      console.warn('Backend connection fallback for demo preview:', e);
-    }
-
-    // Direct fallback for instant client-side preview
-    if (typeof window !== 'undefined') {
-      const fallbackSession = {
-        id: `demo_${roleKey}`,
-        role: roleKey,
-        name: acc.title,
-        email: acc.email,
-        ownerId: 'demo_owner',
-        propertyId: 'demo_prop',
-        mustChangePassword: false
-      };
-      localStorage.setItem(STORAGE_KEYS.CURRENT_SESSION, JSON.stringify(fallbackSession));
-      localStorage.setItem('spg_current_session', JSON.stringify(fallbackSession));
-    }
-    router.push(acc.href);
-  };
-
   return (
     <div className="home-theme flex flex-col min-h-screen font-sans bg-[var(--bg-light)]">
       <HomeHeader />
 
-      <main className="flex-grow pt-12 pb-24 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-6xl mx-auto space-y-12">
-          
-          {/* Header Banner */}
-          <div className="text-center space-y-4 max-w-3xl mx-auto">
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold bg-[var(--primary-teal)]/10 text-[var(--primary-teal)] border border-[var(--primary-teal)]/20 shadow-sm">
-              <Sparkles className="w-4 h-4 animate-pulse" />
-              Live Interactive Platform Preview
-            </div>
-            <h1 className="text-4xl md:text-5xl font-black tracking-tight text-[var(--primary-navy)]">
-              Explore <span className="text-[var(--primary-gold)]">Smart PG</span> Feature Portals
+      <main className="flex-1 px-4 sm:px-8 py-12">
+        <div className="max-w-6xl mx-auto space-y-10">
+          <div className="text-center max-w-3xl mx-auto">
+            <h1 className="text-3xl sm:text-4xl font-black text-[var(--primary-navy)]">
+              Explore SmartPG
             </h1>
-            <p className="text-base md:text-lg text-[var(--text-dark)]/70">
-              Preview how PG Owners, Managers, Students, and Parents interact with the platform. Select a role below to explore the live dashboard UI.
+            <p className="text-[var(--text-medium)] mt-3">
+              Pick a portal to reach its secure sign-in. Sandbox demo accounts are issued on
+              request — we do not publish login credentials on this page.
             </p>
           </div>
 
-          {/* Role Demo Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
-            {demoAccounts.map((acc) => {
-              const IconComp = acc.icon;
-              const isLoading = loadingRole === acc.role;
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+            {PORTALS.map(portal => {
+              const Icon = portal.icon;
               return (
-                <div
-                  key={acc.role}
-                  className={`bg-white rounded-2xl border p-6 flex flex-col justify-between shadow-sm hover:shadow-xl transition-all duration-300 group hover:-translate-y-1 relative overflow-hidden bg-gradient-to-br ${acc.color}`}
+                <Link
+                  key={portal.title}
+                  href={portal.loginHref}
+                  className="group rounded-2xl bg-white border border-black/5 shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1 p-6 flex flex-col justify-between min-h-[220px]"
                 >
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div className="w-12 h-12 rounded-xl bg-white/90 shadow-sm flex items-center justify-center border border-black/5 group-hover:scale-110 transition-transform">
-                        <IconComp className="w-6 h-6" />
-                      </div>
-                      <span className="text-[10px] font-extrabold uppercase tracking-wider px-2.5 py-1 rounded-full bg-white/80 border border-black/10 shadow-xs">
-                        {acc.badge}
-                      </span>
+                  <div>
+                    <div className="w-12 h-12 rounded-xl bg-[var(--primary-teal)]/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                      <Icon className="w-6 h-6 text-[var(--primary-teal)]" />
                     </div>
-
-                    <div>
-                      <h3 className="text-xl font-black text-[var(--primary-navy)] group-hover:text-[var(--primary-teal)] transition-colors">
-                        {acc.title}
-                      </h3>
-                      <p className="text-xs text-[var(--text-dark)]/70 mt-1">
-                        {acc.subtitle}
-                      </p>
-                    </div>
+                    <h2 className="text-lg font-black text-[var(--primary-navy)]">{portal.title}</h2>
+                    <p className="text-xs text-[var(--text-dark)]/70 mt-1">{portal.subtitle}</p>
                   </div>
+                  <span className="mt-6 pt-4 border-t border-black/5 text-xs font-bold text-[var(--primary-teal)] inline-flex items-center gap-1">
+                    Go to sign-in
+                    <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+                  </span>
+                </Link>
+              );
+            })}
+          </div>
 
-                  <div className="pt-6 mt-6 border-t border-black/5 space-y-2">
-                    <button
-                      onClick={() => handleLaunchDemo(acc)}
-                      disabled={isLoading}
-                      className="w-full py-3 px-4 bg-[var(--primary-navy)] text-white font-bold text-xs rounded-xl shadow-md hover:bg-[var(--primary-teal)] transition-colors flex items-center justify-center gap-2 group/btn disabled:opacity-50"
-                    >
-                      {isLoading ? (
-                        <span>Launching Live Preview...</span>
-                      ) : (
-                        <>
-                          <span>Preview {acc.title}</span>
-                          <ArrowRight className="w-4 h-4 group-hover/btn:translate-x-1 transition-transform" />
-                        </>
-                      )}
-                    </button>
-                  </div>
+          <div className="p-8 rounded-2xl bg-white border border-black/5 shadow-sm grid grid-cols-1 sm:grid-cols-3 gap-6 text-center max-w-4xl mx-auto">
+            {HIGHLIGHTS.map(item => {
+              const Icon = item.icon;
+              return (
+                <div key={item.title} className="space-y-1">
+                  <Icon className="w-6 h-6 text-emerald-600 mx-auto" />
+                  <div className="font-bold text-sm text-[var(--primary-navy)]">{item.title}</div>
+                  <p className="text-xs text-[var(--text-dark)]/60">{item.description}</p>
                 </div>
               );
             })}
           </div>
 
-          {/* Quick Features Highlight */}
-          <div className="p-8 rounded-2xl bg-white border border-black/5 shadow-sm grid grid-cols-1 sm:grid-cols-3 gap-6 text-center max-w-4xl mx-auto">
-            <div className="space-y-1">
-              <CheckCircle className="w-6 h-6 text-emerald-600 mx-auto" />
-              <div className="font-bold text-sm text-[var(--primary-navy)]">Real Production Schema</div>
-              <p className="text-xs text-[var(--text-dark)]/60">Live queries hitting PostgreSQL via Prisma REST API</p>
-            </div>
-            <div className="space-y-1">
-              <MonitorPlay className="w-6 h-6 text-[var(--primary-teal)] mx-auto" />
-              <div className="font-bold text-sm text-[var(--primary-navy)]">Instant Dashboard Preview</div>
-              <p className="text-xs text-[var(--text-dark)]/60">Explore UI workflows without creating an account</p>
-            </div>
-            <div className="space-y-1">
-              <Sparkles className="w-6 h-6 text-amber-500 mx-auto" />
-              <div className="font-bold text-sm text-[var(--primary-navy)]">Full End-to-End Workflows</div>
-              <p className="text-xs text-[var(--text-dark)]/60">Rent dues, complaints, mess menu, SOS, and gate logs</p>
-            </div>
+          <div className="text-center">
+            <Link
+              href="/login"
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-[var(--primary-navy)] text-white font-bold text-sm shadow-md hover:bg-[var(--primary-teal)] transition-colors"
+            >
+              Open the unified role login
+              <ArrowRight className="w-4 h-4" />
+            </Link>
           </div>
-
         </div>
       </main>
 

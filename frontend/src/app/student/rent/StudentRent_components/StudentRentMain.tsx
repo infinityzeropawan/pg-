@@ -1,181 +1,215 @@
 'use client';
 
-// RESPONSIBILITY: Renders the StudentRentMain component based on the new checklist.
+// RESPONSIBILITY: Renders the Student Rent & Payments UI.
+// DATA FLOW: useStudentRent.ts -> StudentRentMain.tsx
 
-import { useState, useEffect } from 'react';
-import { IndianRupee, CheckCircle, Download, FileText, Printer, Clock, CreditCard, Smartphone, Banknote, ShieldAlert } from 'lucide-react';
-import { toast } from 'sonner';
+import { useState } from 'react';
+import {
+  IndianRupee,
+  CheckCircle,
+  Download,
+  Clock,
+  CreditCard,
+  Smartphone,
+  Banknote,
+  AlertTriangle,
+} from 'lucide-react';
 
-import { studentOperationsApi } from '@/app/student/student_lib/student_api/StudentOperations';
-import { useStudentContext } from '@/app/student/student_components/StudentContext';
-import { getSession } from '@/app/student/student_lib/student_auth/StudentSession';
-import { formatINR, formatDateOnly } from '@/lib/utils/formatters';
+import { useStudentRent } from '@/app/student/rent/StudentRent_hooks/useStudentRent';
+import { formatPaise } from '@/lib/utils/money';
+import { PAYMENT_METHOD_LABELS, type PaymentMethod } from '@/lib/constants/domain';
+import type { StudentInvoice } from '@/app/student/student_lib/student_api/StudentTypes';
+
+const METHOD_ICONS: Record<PaymentMethod, typeof Smartphone> = {
+  UPI: Smartphone,
+  CARD: CreditCard,
+  BANK_TRANSFER: Banknote,
+};
+
+function formatDay(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('en-IN');
+}
+
+function formatMonth(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? '—'
+    : date.toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+}
+
+function invoiceLabel(invoice: StudentInvoice): string {
+  return invoice.invoiceNumber || `#${invoice.id.substring(0, 8).toUpperCase()}`;
+}
 
 export function StudentRentMain() {
-  const { profile } = useStudentContext();
-  const session = typeof window !== 'undefined' ? getSession() : null;
-  const [invoices, setInvoices] = useState<any[]>([]);
-  const [showPayModal, setShowPayModal] = useState<any>(null);
-  const [paymentMethod, setPaymentMethod] = useState<'UPI' | 'Card' | 'NetBanking'>('UPI');
+  const {
+    loading,
+    paying,
+    error,
+    pendingInvoices,
+    paidInvoices,
+    totalDuePaise,
+    securityDepositPaise,
+    paymentMethod,
+    setPaymentMethod,
+    payInvoice,
+    paymentMethods,
+  } = useStudentRent();
 
-  const loadData = async () => {
-    if (profile) {
-      try {
-        const invs = await studentOperationsApi.getInvoices();
-        setInvoices(Array.isArray(invs) ? invs : []);
-      } catch (e) {
-        console.error('Failed to load invoices:', e);
-      }
-    }
+  const [payTarget, setPayTarget] = useState<StudentInvoice | null>(null);
+
+  if (loading) {
+    return (
+      <div className="p-4 md:p-6 motion-safe:animate-pulse text-secondary">
+        Loading rent details...
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-6 bg-card border border-border rounded-[var(--radius-lg)] text-center">
+        <AlertTriangle className="w-8 h-8 text-danger mx-auto mb-3" />
+        <p className="font-bold text-primary">Unable to load your invoices</p>
+        <p className="text-sm text-secondary mt-1">{error}</p>
+      </div>
+    );
+  }
+
+  const oldestDue = pendingInvoices[0] ?? null;
+
+  const handleConfirmPay = async () => {
+    if (!payTarget) return;
+    const ok = await payInvoice(payTarget);
+    if (ok) setPayTarget(null);
   };
 
-  useEffect(() => {
-    loadData();
-  }, [profile]);
-
-  const handlePay = async () => {
-    if (!profile || !showPayModal) return;
-    try {
-      const totalAmount = showPayModal.amount + (showPayModal.electricityBillAmount || 0);
-      await studentOperationsApi.payInvoice(showPayModal.id, (profile as any).id, paymentMethod);
-      toast.success(`Payment of ${formatINR(totalAmount)} via ${paymentMethod} successful!`);
-      setShowPayModal(null);
-      loadData();
-    } catch (err: any) {
-      toast.error(err.message || 'Payment failed');
-    }
-  };
-
-  if (!profile) return <div className="p-4 motion-safe:animate-pulse">Loading...</div>;
-
-  const pending = invoices.filter(i => i.status !== 'Paid').sort((a,b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
-  const history = invoices.filter(i => i.status === 'Paid').sort((a,b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-  
   return (
     <div className="space-y-6 w-full pb-20 print:pb-0">
       <div className="print:hidden">
         <h1 className="text-[24px] font-black text-primary flex items-center gap-2">
-          💳 Rent & Payments
+          💳 Rent &amp; Payments
         </h1>
-        <p className="text-sm text-secondary mt-1">Manage your monthly rent, security deposit, and payment history.</p>
+        <p className="text-sm text-secondary mt-1">
+          Manage your monthly rent, security deposit, and payment history.
+        </p>
       </div>
 
-      {/* Top Section: Pending Dues & Security Deposit */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 print:hidden">
-        {/* Pending Dues Box */}
+        {/* Pending Dues */}
         <div className="bg-card border border-border rounded-[var(--radius-lg)] p-6 shadow-sm flex flex-col justify-between">
           <div>
             <h3 className="font-black text-primary text-lg mb-4 flex items-center gap-2 border-b border-border pb-3">
-              <Clock className="w-5 h-5 text-danger" /> Pending Rent & Dues
+              <Clock className="w-5 h-5 text-danger" /> Pending Rent &amp; Dues
             </h3>
-            {pending.length > 0 ? (
+            {oldestDue ? (
               <div className="space-y-3">
                 <div className="flex justify-between text-sm">
-                  <span className="text-secondary">Base Rent</span>
-                  <span className="font-medium text-primary">{formatINR(pending[0].amount)}</span>
+                  <span className="text-secondary">Invoice {invoiceLabel(oldestDue)}</span>
+                  <span className="font-medium text-primary text-xs">
+                    {oldestDue.billingMonth || formatMonth(oldestDue.dueDate)}
+                  </span>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-secondary">Electricity (As per meter)</span>
-                  <span className="font-medium text-primary">{formatINR(pending[0].electricityBillAmount || 0)}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-secondary">Mess / Food</span>
-                  <span className="font-medium text-primary">Included</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-secondary">Wi-Fi & Maintenance</span>
-                  <span className="font-medium text-primary">Included</span>
-                </div>
+
+                {oldestDue.items.map(item => (
+                  <div key={item.id} className="flex justify-between text-sm">
+                    <span className="text-secondary">{item.title}</span>
+                    <span className="font-medium text-primary">{formatPaise(item.amountPaise)}</span>
+                  </div>
+                ))}
+
                 <div className="border-t border-border pt-3 mt-3 flex justify-between items-center">
                   <span className="font-black text-primary uppercase text-sm">Total Due</span>
-                  <span className="font-black text-2xl text-danger">{formatINR(pending[0].amount + (pending[0].electricityBillAmount || 0))}</span>
+                  <span className="font-black text-2xl text-danger">{formatPaise(totalDuePaise)}</span>
                 </div>
+
+                {pendingInvoices.length > 1 && (
+                  <div className="text-xs text-secondary">
+                    Across {pendingInvoices.length} open invoices
+                  </div>
+                )}
+
                 <div className="text-xs font-bold text-danger bg-danger-bg p-2 rounded text-center">
-                  Due Date: {new Date(pending[0].dueDate).toLocaleDateString()}
+                  Due Date: {formatDay(oldestDue.dueDate)}
                 </div>
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-6 text-center h-full">
-                 <CheckCircle className="w-12 h-12 text-success mb-3" />
-                 <div className="font-black text-lg text-primary">No Pending Dues!</div>
-                 <div className="text-sm text-secondary">You are all caught up for this month.</div>
+                <CheckCircle className="w-12 h-12 text-success mb-3" />
+                <div className="font-black text-lg text-primary">No Pending Dues!</div>
+                <div className="text-sm text-secondary mt-1">
+                  You are all caught up on your rent.
+                </div>
               </div>
             )}
           </div>
-          {pending.length > 0 && (
-            <div className="mt-6">
-              <button onClick={() => setShowPayModal(pending[0])} className="w-full py-3 bg-primary text-white rounded-[var(--radius-md)] font-bold shadow-md hover:bg-primary-hover transition-colors">
-                Pay Now &rarr;
-              </button>
-            </div>
+
+          {oldestDue && (
+            <button
+              onClick={() => setPayTarget(oldestDue)}
+              className="mt-6 w-full py-3 bg-primary text-white rounded-[var(--radius-md)] font-bold shadow-md hover:bg-primary-hover transition-colors"
+            >
+              Pay {formatPaise(oldestDue.duePaise)}
+            </button>
           )}
         </div>
 
-        {/* Security Deposit Box */}
+        {/* Security Deposit */}
         <div className="bg-card border border-border rounded-[var(--radius-lg)] p-6 shadow-sm">
           <h3 className="font-black text-primary text-lg mb-4 flex items-center gap-2 border-b border-border pb-3">
-            <ShieldAlert className="w-5 h-5 text-info" /> Security Deposit Details
+            <IndianRupee className="w-5 h-5 text-primary" /> Security Deposit
           </h3>
-          <div className="space-y-4">
-             <div className="bg-info-bg border border-info/20 p-4 rounded-[var(--radius-md)]">
-               <div className="text-xs font-bold text-info/80 uppercase mb-1">Total Amount Paid</div>
-               <div className="text-3xl font-black text-info">₹10,000</div>
-             </div>
-             <div className="space-y-2 text-sm">
-               <div className="flex justify-between border-b border-border pb-2">
-                 <span className="text-secondary font-medium">Status</span>
-                 <span className="font-bold text-success">Secured with PG</span>
-               </div>
-               <div className="flex justify-between border-b border-border pb-2">
-                 <span className="text-secondary font-medium">Refundable Amount</span>
-                 <span className="font-bold text-primary">₹10,000</span>
-               </div>
-               <div className="flex justify-between border-b border-border pb-2">
-                 <span className="text-secondary font-medium">Expected Deductions</span>
-                 <span className="font-bold text-primary">₹0 (Subject to inspection)</span>
-               </div>
-               <div className="flex justify-between">
-                 <span className="text-secondary font-medium">Refund Date</span>
-                 <span className="font-bold text-primary">At time of move-out</span>
-               </div>
-             </div>
+          <div className="flex flex-col items-center justify-center py-4 text-center">
+            <div className="text-3xl font-black text-primary">{formatPaise(securityDepositPaise)}</div>
+            <div className="text-xs font-bold text-secondary uppercase mt-2">Held with the PG</div>
+            <div className="text-xs text-secondary mt-4 bg-input p-3 rounded-[var(--radius-sm)] border border-border">
+              Refundable after clearance, subject to the notice period and a joint room inspection.
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Payment History & Invoices */}
-      <div className="bg-card border border-border rounded-[var(--radius-lg)] p-6 shadow-sm print:hidden">
+      {/* Payment History */}
+      <div className="bg-card border border-border rounded-[var(--radius-lg)] p-6 shadow-sm">
         <h3 className="font-black text-primary text-lg mb-4 flex items-center gap-2 border-b border-border pb-3">
-          📜 Payment History & Invoices
+          <Download className="w-5 h-5 text-secondary" /> Payment History
         </h3>
-        
-        {history.length > 0 ? (
+
+        {paidInvoices.length > 0 ? (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left">
+            <table className="w-full text-sm min-w-[640px]">
               <thead className="bg-input text-secondary text-xs uppercase font-bold">
                 <tr>
-                  <th className="px-4 py-3 rounded-tl-[var(--radius-sm)]">Invoice ID</th>
-                  <th className="px-4 py-3">Month</th>
-                  <th className="px-4 py-3">Amount</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Date Paid</th>
-                  <th className="px-4 py-3 rounded-tr-[var(--radius-sm)] text-right">Action</th>
+                  <th className="px-4 py-3 rounded-tl-[var(--radius-sm)] text-left">Invoice</th>
+                  <th className="px-4 py-3 text-left">Month</th>
+                  <th className="px-4 py-3 text-left">Amount</th>
+                  <th className="px-4 py-3 text-left">Status</th>
+                  <th className="px-4 py-3 text-left">Due Date</th>
+                  <th className="px-4 py-3 rounded-tr-[var(--radius-sm)] text-right">Receipt</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {history.map((inv: any) => (
-                  <tr key={inv.id} className="hover:bg-input transition-colors">
-                    <td className="px-4 py-3 font-medium text-primary">#{inv.id.substring(0,8).toUpperCase()}</td>
-                    <td className="px-4 py-3 text-secondary">{new Date(inv.dueDate).toLocaleString('default', { month: 'long', year: 'numeric' })}</td>
-                    <td className="px-4 py-3 font-bold text-primary">{formatINR(inv.amount + (inv.electricityBillAmount || 0))}</td>
+                {paidInvoices.map(invoice => (
+                  <tr key={invoice.id} className="hover:bg-input transition-colors">
+                    <td className="px-4 py-3 font-medium text-primary">{invoiceLabel(invoice)}</td>
+                    <td className="px-4 py-3 text-secondary">
+                      {invoice.billingMonth || formatMonth(invoice.dueDate)}
+                    </td>
+                    <td className="px-4 py-3 font-bold text-primary">
+                      {formatPaise(invoice.paidPaise)}
+                    </td>
                     <td className="px-4 py-3">
                       <span className="inline-flex items-center gap-1 text-success font-bold text-xs bg-success-bg px-2 py-1 rounded">
                         <CheckCircle className="w-3 h-3" /> Paid
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-secondary">{new Date(inv.updatedAt).toLocaleDateString()}</td>
+                    <td className="px-4 py-3 text-secondary">{formatDay(invoice.dueDate)}</td>
                     <td className="px-4 py-3 text-right">
-                      <button onClick={() => window.print()} className="text-primary hover:underline font-bold text-xs flex items-center justify-end gap-1 w-full">
+                      <button
+                        onClick={() => window.print()}
+                        className="text-primary hover:underline font-bold text-xs inline-flex items-center gap-1"
+                      >
                         <Download className="w-3 h-3" /> Download
                       </button>
                     </td>
@@ -190,51 +224,69 @@ export function StudentRentMain() {
           </div>
         )}
       </div>
-
-      {/* Pay Modal */}
-      {showPayModal && (
+{/* Pay Modal */}
+      {payTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
           <div className="bg-card w-full max-w-md rounded-[var(--radius-lg)] shadow-2xl overflow-hidden animate-in fade-in zoom-in-95">
             <div className="p-5 border-b border-border flex justify-between items-center bg-input">
               <h2 className="text-lg font-black text-primary flex items-center gap-2">
                 <IndianRupee className="w-5 h-5 text-primary" /> Complete Payment
               </h2>
-              <button onClick={() => setShowPayModal(null)} className="text-secondary hover:text-primary font-bold">X</button>
+              <button
+                onClick={() => setPayTarget(null)}
+                className="text-secondary hover:text-primary font-bold"
+              >
+                X
+              </button>
             </div>
-            
+
             <div className="p-6 space-y-5">
               <div className="text-center">
                 <div className="text-sm font-bold text-secondary uppercase mb-1">Total Amount</div>
-                <div className="text-4xl font-black text-primary">{formatINR(showPayModal.amount + (showPayModal.electricityBillAmount || 0))}</div>
+                <div className="text-4xl font-black text-primary">{formatPaise(payTarget.duePaise)}</div>
+                <div className="text-xs text-secondary mt-2">Invoice {invoiceLabel(payTarget)}</div>
               </div>
-              
-              <div>
-                <div className="text-sm font-bold text-secondary uppercase mb-3 border-b border-border pb-1">Select Payment Method</div>
-                <div className="space-y-2">
-                  <label className={`flex items-center gap-3 p-3 rounded-[var(--radius-md)] border cursor-pointer transition-colors ${paymentMethod === 'UPI' ? 'border-primary bg-primary-subtle' : 'border-border hover:bg-input'}`}>
-                    <input type="radio" name="pay_method" checked={paymentMethod === 'UPI'} onChange={() => setPaymentMethod('UPI')} className="accent-primary" />
-                    <Smartphone className={`w-5 h-5 ${paymentMethod === 'UPI' ? 'text-primary' : 'text-secondary'}`} />
-                    <span className={`font-bold text-sm ${paymentMethod === 'UPI' ? 'text-primary' : 'text-secondary'}`}>UPI (GPay, PhonePe, Paytm)</span>
-                  </label>
-                  
-                  <label className={`flex items-center gap-3 p-3 rounded-[var(--radius-md)] border cursor-pointer transition-colors ${paymentMethod === 'Card' ? 'border-primary bg-primary-subtle' : 'border-border hover:bg-input'}`}>
-                    <input type="radio" name="pay_method" checked={paymentMethod === 'Card'} onChange={() => setPaymentMethod('Card')} className="accent-primary" />
-                    <CreditCard className={`w-5 h-5 ${paymentMethod === 'Card' ? 'text-primary' : 'text-secondary'}`} />
-                    <span className={`font-bold text-sm ${paymentMethod === 'Card' ? 'text-primary' : 'text-secondary'}`}>Credit / Debit Card</span>
-                  </label>
 
-                  <label className={`flex items-center gap-3 p-3 rounded-[var(--radius-md)] border cursor-pointer transition-colors ${paymentMethod === 'NetBanking' ? 'border-primary bg-primary-subtle' : 'border-border hover:bg-input'}`}>
-                    <input type="radio" name="pay_method" checked={paymentMethod === 'NetBanking'} onChange={() => setPaymentMethod('NetBanking')} className="accent-primary" />
-                    <Banknote className={`w-5 h-5 ${paymentMethod === 'NetBanking' ? 'text-primary' : 'text-secondary'}`} />
-                    <span className={`font-bold text-sm ${paymentMethod === 'NetBanking' ? 'text-primary' : 'text-secondary'}`}>Net Banking</span>
-                  </label>
+              <div>
+                <div className="text-sm font-bold text-secondary uppercase mb-3 border-b border-border pb-1">
+                  Select Payment Method
+                </div>
+                <div className="space-y-2">
+                  {paymentMethods.map(method => {
+                    const Icon = METHOD_ICONS[method];
+                    const isSelected = paymentMethod === method;
+                    return (
+                      <label
+                        key={method}
+                        className={`flex items-center gap-3 p-3 rounded-[var(--radius-md)] border cursor-pointer transition-colors ${
+                          isSelected ? 'border-primary bg-primary-subtle' : 'border-border hover:bg-input'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="pay_method"
+                          checked={isSelected}
+                          onChange={() => setPaymentMethod(method)}
+                          className="accent-primary"
+                        />
+                        <Icon className={`w-5 h-5 ${isSelected ? 'text-primary' : 'text-secondary'}`} />
+                        <span className={`font-bold text-sm ${isSelected ? 'text-primary' : 'text-secondary'}`}>
+                          {PAYMENT_METHOD_LABELS[method]}
+                        </span>
+                      </label>
+                    );
+                  })}
                 </div>
               </div>
             </div>
-            
+
             <div className="p-5 border-t border-border bg-input">
-              <button onClick={handlePay} className="w-full py-3 bg-primary text-white rounded-[var(--radius-md)] font-bold shadow-md hover:bg-primary-hover transition-colors">
-                Pay {formatINR(showPayModal.amount + (showPayModal.electricityBillAmount || 0))} via {paymentMethod}
+              <button
+                onClick={handleConfirmPay}
+                disabled={paying}
+                className="w-full py-3 bg-primary text-white rounded-[var(--radius-md)] font-bold shadow-md hover:bg-primary-hover transition-colors disabled:opacity-60"
+              >
+                {paying ? 'Processing...' : `Pay ${formatPaise(payTarget.duePaise)} via ${paymentMethod}`}
               </button>
             </div>
           </div>

@@ -17,13 +17,28 @@ Use the root [`vercel.json`](file:///home/pawan/Desktop/pg%20management/vercel.j
 - **Vercel Project Setup:**
   1. Connect your GitHub repository (`infinityzeropawan/pg-`) to Vercel.
   2. Leave **Root Directory** as `./` (project root).
-  3. Set **Build Command**: `cd backend && npm run build && cd ../frontend && npm run build`
-  4. Add Environment Variables:
-     - `DATABASE_URL` = `postgresql://user:pass@ep-xyz-pooler.neon.tech/neondb?sslmode=require`
-     - `DIRECT_URL` = `postgresql://user:pass@ep-xyz.neon.tech/neondb?sslmode=require`
-     - `JWT_SECRET` = `your_jwt_production_secret`
-     - `JWT_REFRESH_SECRET` = `your_jwt_refresh_production_secret`
-     - `NEXT_PUBLIC_API_URL` = (leave empty or set to `/` since `/api/v1` routes to the backend on the same domain)
+  3. Add Environment Variables (see `backend/.env.example` and `frontend/.env.example`):
+
+     **Backend project / environment:**
+     - `DATABASE_URL` = `postgresql://user:pass@ep-xyz-pooler.neon.tech/neondb?sslmode=require` *(pooled)*
+     - `DIRECT_URL` = `postgresql://user:pass@ep-xyz.neon.tech/neondb?sslmode=require` *(direct)*
+     - `JWT_SECRET` = a long random secret (`openssl rand -base64 48`)
+     - `JWT_REFRESH_SECRET` = a different long random secret
+     - `CORS_ORIGINS` = your frontend origin(s), e.g. `https://smartpg.vercel.app`
+     - `NODE_ENV` = `production`
+
+     **Frontend project / environment:**
+     - `NEXT_PUBLIC_API_URL` — for the monorepo option **leave it unset**. The shared
+       resolver (`frontend/src/lib/config/apiBase.ts`) then issues same-origin requests
+       and the `vercel.json` rewrites route `/api/v1/*` to the backend service.
+       *(Only set it if you deploy the backend as a separate project.)*
+     - `NEXT_PUBLIC_APP_ENV` = `production`
+
+> ⚠️ **Never set `NEXT_PUBLIC_API_URL` to an empty string and expect a fallback.**
+> An earlier revision of this guide suggested "leave empty or set to `/`", which
+> silently resolved to `http://localhost:5000` in production and broke every API call.
+> The resolver now handles an unset value correctly, but do not set it to `/`.
+
 
 ---
 

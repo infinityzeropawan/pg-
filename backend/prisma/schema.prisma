@@ -168,6 +168,7 @@ model User {
   // Assigned properties & activity
   staffAssignments      StaffAssignment[]
   createdProperties     Property[]    @relation("PropertyOwner")
+  raisedComplaints      Complaint[]   @relation("ComplaintRaisedBy")
   sessions              UserSession[]
   auditLogs             AuditLog[]    @relation("AuditActor")
   
@@ -587,6 +588,10 @@ model Complaint {
   ownerId     String
   propertyId  String
   property    Property          @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  // Attribution: which resident raised this complaint. Without this field every
+  // student in the PG could read every other student's complaint (cross-tenant leak).
+  createdByUserId String?
+  createdBy       User?         @relation("ComplaintRaisedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
   title       String
   description String
   category    String
@@ -600,6 +605,7 @@ model Complaint {
   @@index([ownerId])
   @@index([propertyId])
   @@index([status])
+  @@index([createdByUserId])
 }
 
 model Attendance {

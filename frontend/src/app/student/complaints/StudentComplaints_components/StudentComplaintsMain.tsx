@@ -3,33 +3,48 @@
 // RESPONSIBILITY: Renders the Student Complaints & Support UI.
 
 import { useState, useEffect } from 'react';
-import { MessageSquareWarning, Plus, Search, Filter, Star } from 'lucide-react';
+import { MessageSquareWarning, Plus, Search, Filter, ChevronDown, ChevronUp } from 'lucide-react';
 import Link from 'next/link';
 
 import { studentOperationsApi } from '@/app/student/student_lib/student_api/StudentOperations';
 import { useStudentContext } from '@/app/student/student_components/StudentContext';
 import { Pagination } from '@/components/ui/Pagination';
+import {
+  normalizeComplaints,
+  type StudentComplaint,
+} from '@/app/student/student_lib/student_api/StudentTypes';
+import { STUDENT_ROUTES } from '@/app/student/student_url_config';
+import {
+  COMPLAINT_PRIORITY,
+  COMPLAINT_PRIORITY_LABELS,
+  COMPLAINT_STATUS,
+  COMPLAINT_STATUS_LABELS,
+  type ComplaintPriority,
+  type ComplaintStatus,
+} from '@/lib/constants/domain';
 
 export function StudentComplaintsMain() {
   const { profile } = useStudentContext();
-  const [complaints, setComplaints] = useState<any[]>([]);
+  const [complaints, setComplaints] = useState<StudentComplaint[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 6;
-  const [filterStatus, setFilterStatus] = useState('All');
+  const [filterStatus, setFilterStatus] = useState<'ALL' | ComplaintStatus>('ALL');
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
-    if (profile) {
-      studentOperationsApi.getComplaints().then((data) => {
-        if (isMounted) setComplaints(Array.isArray(data) ? data : []);
-      });
-    }
-    return () => { isMounted = false; };
-  }, [profile]);
+    studentOperationsApi.getComplaints().then(data => {
+      if (isMounted) setComplaints(normalizeComplaints(data));
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   if (!profile) return <div className="p-4 motion-safe:animate-pulse">Loading...</div>;
   
-  const filtered = filterStatus === 'All' ? complaints : complaints.filter(c => c.status === filterStatus);
+  const filtered =
+    filterStatus === 'ALL' ? complaints : complaints.filter(c => c.status === filterStatus);
   const paginatedComplaints = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
   return (
@@ -41,7 +56,7 @@ export function StudentComplaintsMain() {
           </h1>
           <p className="text-sm text-secondary mt-1">Raise a new complaint or track your reported issues.</p>
         </div>
-        <Link href="/student/complaints/new" className="px-5 py-2.5 bg-primary text-white rounded-[var(--radius-md)] font-bold shadow-md flex items-center gap-2 hover:bg-primary-hover transition-colors whitespace-nowrap">
+        <Link href={STUDENT_ROUTES.NEW_COMPLAINT} className="px-5 py-2.5 bg-primary text-white rounded-[var(--radius-md)] font-bold shadow-md flex items-center gap-2 hover:bg-primary-hover transition-colors whitespace-nowrap">
           <Plus className="w-5 h-5"/> Raise Complaint
         </Link>
       </div>
@@ -55,13 +70,14 @@ export function StudentComplaintsMain() {
            <Filter className="w-4 h-4 text-secondary" />
            <select 
              value={filterStatus}
-             onChange={e => setFilterStatus(e.target.value)}
+             onChange={e => setFilterStatus(e.target.value as 'ALL' | ComplaintStatus)}
              className="bg-input border border-border rounded-[var(--radius-md)] px-3 py-2 text-sm font-medium text-primary focus:outline-none focus:border-primary flex-1 sm:flex-none"
            >
-             <option value="All">All Status</option>
-             <option value="Pending">Open / Pending</option>
-             <option value="In Progress">In Progress</option>
-             <option value="Resolved">Resolved</option>
+             <option value="ALL">All Status</option>
+             <option value={COMPLAINT_STATUS.OPEN}>{COMPLAINT_STATUS_LABELS.OPEN}</option>
+             <option value={COMPLAINT_STATUS.IN_PROGRESS}>{COMPLAINT_STATUS_LABELS.IN_PROGRESS}</option>
+             <option value={COMPLAINT_STATUS.RESOLVED}>{COMPLAINT_STATUS_LABELS.RESOLVED}</option>
+             <option value={COMPLAINT_STATUS.CLOSED}>{COMPLAINT_STATUS_LABELS.CLOSED}</option>
            </select>
          </div>
       </div>
@@ -72,34 +88,51 @@ export function StudentComplaintsMain() {
             <div className="flex justify-between items-start mb-3">
               <h3 className="font-bold text-primary text-lg capitalize">{c.title || c.category}</h3>
               <span className={`px-3 py-1 rounded-[var(--radius-full)] text-[10px] font-black tracking-wider uppercase shadow-sm ${
-                c.status === 'Resolved' ? 'bg-success-bg border border-success/20 text-success' :
-                c.status === 'In Progress' ? 'bg-primary-subtle border border-primary/20 text-primary' :
+                c.status === COMPLAINT_STATUS.RESOLVED || c.status === COMPLAINT_STATUS.CLOSED ? 'bg-success-bg border border-success/20 text-success' :
+                c.status === COMPLAINT_STATUS.IN_PROGRESS ? 'bg-primary-subtle border border-primary/20 text-primary' :
+                c.status === COMPLAINT_STATUS.REJECTED ? 'bg-input border border-border text-secondary' :
                 'bg-danger-bg border border-danger/20 text-danger'
               }`}>
-                {c.status || 'Pending'}
+                {COMPLAINT_STATUS_LABELS[c.status as ComplaintStatus] || c.status}
               </span>
             </div>
             <p className="text-sm text-secondary mb-5 line-clamp-2">{c.description}</p>
             <div className="flex flex-wrap items-center justify-between gap-2 mt-4 pt-4 border-t border-border">
               <div className="flex items-center gap-2">
-                <span className={`text-xs font-bold px-2 py-1 rounded-[var(--radius-sm)] ${c.priority === 'High' ? 'bg-danger-bg text-danger' : c.priority === 'Medium' ? 'bg-warning-bg text-warning' : 'bg-info-bg text-info'}`}>
-                  Priority: {c.priority || 'Low'}
+                <span className={`text-xs font-bold px-2 py-1 rounded-[var(--radius-sm)] ${
+                  c.priority === COMPLAINT_PRIORITY.URGENT ? 'bg-danger-bg text-danger' :
+                  c.priority === COMPLAINT_PRIORITY.HIGH ? 'bg-danger-bg text-danger' :
+                  c.priority === COMPLAINT_PRIORITY.MEDIUM ? 'bg-warning-bg text-warning' :
+                  'bg-info-bg text-info'
+                }`}>
+                  Priority: {COMPLAINT_PRIORITY_LABELS[c.priority as ComplaintPriority] || c.priority}
                 </span>
                 <span className="text-xs text-secondary font-medium">
                   {new Date(c.createdAt).toLocaleDateString()}
                 </span>
               </div>
-              <button className="text-xs font-bold text-primary hover:underline">
-                View Details
+              <button
+                onClick={() => setExpandedId(expandedId === c.id ? null : c.id)}
+                className="text-xs font-bold text-primary hover:underline inline-flex items-center gap-1"
+              >
+                {expandedId === c.id ? (
+                  <>Hide Details <ChevronUp className="w-3 h-3" /></>
+                ) : (
+                  <>View Details <ChevronDown className="w-3 h-3" /></>
+                )}
               </button>
             </div>
-            {c.status === 'Resolved' && (
-              <div className="mt-4 bg-input rounded-[var(--radius-md)] p-3 border border-border flex items-center justify-between">
-                <span className="text-xs font-medium text-secondary">Rate Resolution:</span>
-                <div className="flex gap-1">
-                  {[1,2,3,4,5].map(s => (
-                    <Star key={s} className="w-4 h-4 text-warning cursor-pointer hover:scale-110 transition-transform" />
-                  ))}
+            {expandedId === c.id && (
+              <div className="mt-4 bg-input rounded-[var(--radius-md)] p-3 border border-border space-y-2">
+                <div className="text-xs font-bold text-secondary uppercase">Category</div>
+                <div className="text-sm text-primary">{c.category || '—'}</div>
+                <div className="text-xs font-bold text-secondary uppercase pt-1">Description</div>
+                <div className="text-sm text-primary whitespace-pre-wrap">{c.description}</div>
+                <div className="text-xs text-secondary pt-1">
+                  Raised on {new Date(c.createdAt).toLocaleString('en-IN')}
+                  {c.resolvedAt
+                    ? ` • Resolved on ${new Date(c.resolvedAt).toLocaleString('en-IN')}`
+                    : ''}
                 </div>
               </div>
             )}

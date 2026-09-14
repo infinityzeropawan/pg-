@@ -34,7 +34,7 @@ function StudentLayoutInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const user = typeof window !== 'undefined' ? getSession() : null;
-  const { profile, loading } = useStudentContext();
+  const { profile, loading, error, refetch } = useStudentContext();
   const { lang, setLang, t } = useStudentI18n();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -51,7 +51,39 @@ function StudentLayoutInner({ children }: { children: React.ReactNode }) {
     router.push('/');
   };
 
-  if (loading) return null;
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-page text-secondary text-sm">
+        Loading Student App...
+      </div>
+    );
+  }
+
+  // The profile is required by every screen in this portal. Surface a real error state
+  // instead of rendering screens that would otherwise show empty or placeholder values.
+  if (error && !profile) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-page text-center p-6 gap-3">
+        <ShieldAlert className="w-10 h-10 text-danger" />
+        <h1 className="text-lg font-bold text-primary">Unable to load your resident profile</h1>
+        <p className="text-sm text-secondary max-w-sm">{error}</p>
+        <div className="flex gap-3 mt-2">
+          <button
+            onClick={() => void refetch()}
+            className="px-4 py-2 bg-primary text-white rounded-[var(--radius-md)] text-sm font-bold"
+          >
+            Retry
+          </button>
+          <button
+            onClick={handleLogout}
+            className="px-4 py-2 bg-input text-primary rounded-[var(--radius-md)] text-sm font-bold border border-border"
+          >
+            Logout
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="student-theme min-h-screen bg-page flex flex-col md:flex-row">
@@ -103,7 +135,7 @@ function StudentLayoutInner({ children }: { children: React.ReactNode }) {
           </div>
           
           {NAV_ITEMS.map((item: any) => {
-            if (item.key === 'mess' && !(profile as any)?.hasMessFacility) return null;
+            if (item.key === 'mess' && profile?.hasMessFacility === false) return null;
             return (
             <Link
               key={item.key}
@@ -171,7 +203,7 @@ function StudentLayoutInner({ children }: { children: React.ReactNode }) {
       {/* Mobile Bottom Navigation */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 bg-card/90 backdrop-blur-xl border-t border-border pb-safe shadow-[0_-4px_20px_rgba(0,0,0,0.05)] z-40 motion-safe:transition-all motion-safe:duration-300">
         <div className="flex items-center justify-around p-2">
-          {NAV_ITEMS.filter(item => !(item.key === 'mess' && !profile?.hasMessFacility)).slice(0, 5).map((item: any) => (
+          {NAV_ITEMS.filter(item => !(item.key === 'mess' && profile?.hasMessFacility === false)).slice(0, 5).map((item: any) => (
             <Link
               key={item.key}
               href={item.href}

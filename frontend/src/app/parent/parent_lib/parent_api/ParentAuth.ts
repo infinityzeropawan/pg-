@@ -1,11 +1,11 @@
+import { apiUrl, warnIfApiBaseUnconfigured } from '@/lib/config/apiBase';
 import { STORAGE_KEYS } from '@/lib/storage/keys';
-
-const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api/v1';
 
 export const authApi = {
   async login({ email, password, expectedRole }: { email: string; password?: string; expectedRole?: string }) {
+    warnIfApiBaseUnconfigured();
     try {
-      const res = await fetch(`${BACKEND_URL}/auth/login`, {
+      const res = await fetch(apiUrl('/api/v1/auth/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -61,7 +61,7 @@ export const authApi = {
 
   async changePassword(_userId: string, newPassword: string) {
     const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
-    const res = await fetch(`${BACKEND_URL}/auth/change-password`, {
+    const res = await fetch(apiUrl('/api/v1/auth/change-password'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

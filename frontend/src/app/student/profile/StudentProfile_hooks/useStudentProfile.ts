@@ -1,44 +1,71 @@
-// RESPONSIBILITY: Provides business logic and state management for the Student Profile.
-// DATA FLOW: API -> useStudentProfile -> StudentProfileMain
+// RESPONSIBILITY: Business logic + state for the Student Profile screen.
+// DATA FLOW: PUT /api/v1/student/profile -> useStudentProfile -> StudentProfileMain
+// The payload keys mirror the backend TenantProfile columns exactly; unknown keys
+// are silently dropped by Prisma, so a mismatch here would fake a successful save.
 
-import { useState, useEffect } from 'react';
+'use client';
+
+import { useCallback, useEffect, useState } from 'react';
+import { toast } from 'sonner';
 
 import { studentOperationsApi } from '@/app/student/student_lib/student_api/StudentOperations';
 import { useStudentContext } from '@/app/student/student_components/StudentContext';
-import { getSession } from '@/app/student/student_lib/student_auth/StudentSession';
+
+export interface ProfileFormData {
+  emergencyContactName: string;
+  emergencyContactPhone: string;
+  permanentAddress: string;
+  collegeOrCompany: string;
+}
 
 export function useStudentProfile() {
-  const { profile } = useStudentContext();
-  const session = typeof window !== 'undefined' ? getSession() : null;
-  const [formData, setFormData] = useState({ phone: '', parentName: '', parentPhone: '' });
+  const { profile, refetch } = useStudentContext();
+  const [formData, setFormData] = useState<ProfileFormData>({
+    emergencyContactName: '',
+    emergencyContactPhone: '',
+    permanentAddress: '',
+    collegeOrCompany: '',
+  });
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (profile) {
-      setFormData({
-        phone: (profile as any).user?.phone || '',
-        parentName: (profile as any).parentName || '',
-        parentPhone: (profile as any).parentPhone || ''
-      });
-    }
+    if (!profile) return;
+    setFormData({
+      emergencyContactName: profile.emergencyContactName || '',
+      emergencyContactPhone: profile.emergencyContactPhone || '',
+      permanentAddress: profile.permanentAddress || '',
+      collegeOrCompany: profile.collegeOrCompany || '',
+    });
   }, [profile]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!profile) return;
-    try {
-      await studentOperationsApi.updateProfile(formData);
-      alert('Profile updated successfully.');
-      window.location.reload();
-    } catch (err: any) {
-      alert(err.message || 'Failed to update profile');
-    }
-  };
+  const handleSubmit = useCallback(
+    async (e: React.FormEvent): Promise<boolean> => {
+      e.preventDefault();
+      if (!profile) return false;
+      if (!formData.emergencyContactName.trim() || !formData.emergencyContactPhone.trim()) {
+        toast.error('Emergency contact name and phone are required.');
+        return false;
+      }
+      setSaving(true);
+      try {
+        await studentOperationsApi.updateProfile({
+          emergencyContactName: formData.emergencyContactName.trim(),
+          emergencyContactPhone: formData.emergencyContactPhone.trim(),
+          permanentAddress: formData.permanentAddress.trim(),
+          collegeOrCompany: formData.collegeOrCompany.trim(),
+        });
+        await refetch();
+        toast.success('Profile updated successfully.');
+        return true;
+      } catch (err: unknown) {
+        toast.error(err instanceof Error ? err.message : 'Failed to update profile.');
+        return false;
+      } finally {
+        setSaving(false);
+      }
+    },
+    [profile, formData, refetch]
+  );
 
-  return {
-    profile,
-    session,
-    formData,
-    setFormData,
-    handleSubmit
-  };
+  return { profile, formData, setFormData, handleSubmit, saving };
 }

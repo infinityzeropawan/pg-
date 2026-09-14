@@ -5,12 +5,14 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CalendarClock } from 'lucide-react';
 
+import { toast } from 'sonner';
+
 import { useStudentContext } from '@/app/student/student_components/StudentContext';
 import { studentOperationsApi } from '@/app/student/student_lib/student_api/StudentOperations';
 
 export function StudentNoticePeriodMain() {
   const router = useRouter();
-  const { profile } = useStudentContext();
+  const { profile, refetch } = useStudentContext();
   const [formData, setFormData] = useState({ date: '', reason: '' });
   const [loading, setLoading] = useState(false);
 
@@ -21,10 +23,11 @@ export function StudentNoticePeriodMain() {
     
     try {
       await studentOperationsApi.submitNoticePeriod(formData.date, formData.reason);
-      alert('Move-out notice submitted successfully. Manager has been notified.');
+      await refetch();
+      toast.success('Move-out notice submitted successfully.');
       router.push('/student/dashboard');
     } catch (err: any) {
-      alert(err.message || 'Failed to submit notice period');
+      toast.error(err?.message || 'Failed to submit notice period');
     } finally {
       setLoading(false);
     }

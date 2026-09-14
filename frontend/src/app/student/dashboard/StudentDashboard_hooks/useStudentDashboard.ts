@@ -29,23 +29,10 @@ export function useStudentDashboard() {
     return () => { isMounted = false; };
   }, [profile]);
 
-  const handleReferralSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!profile) return;
-    
-    const formData = new FormData(e.currentTarget);
-    const name = (formData as any).get('name') as string;
-    const phone = (formData as any).get('phone') as string;
-    
-    alert(`Thank you! Referral for ${name} (${phone}) submitted.`);
-    (e.target as HTMLFormElement).reset();
-  };
-
   return {
     profile,
     loading,
     menu,
-    notices,
-    handleReferralSubmit
+    notices
   };
 }
