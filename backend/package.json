@@ -2,10 +2,11 @@
   "name": "smart-pg-backend",
   "version": "1.0.0",
   "description": "Smart PG Management SaaS Backend API Server",
-  "main": "dist/server.js",
+  "main": "dist/index.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
-    "build": "tsc",
+    "postinstall": "prisma generate",
+    "build": "prisma generate && tsc",
     "start": "node dist/server.js",
     "prisma:generate": "prisma generate",
     "prisma:db-push": "prisma db push",
