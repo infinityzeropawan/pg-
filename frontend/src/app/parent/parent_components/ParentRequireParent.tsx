@@ -15,7 +15,7 @@ export function ParentRequireParent({ children }: { children: React.ReactNode })
     const session = getSession();
     const isLoginPage = pathname?.includes('/parent/login');
 
-    if (!session || session.role !== 'parent') {
+    if (!session || session.role?.toLowerCase() !== 'parent') {
       if (!isLoginPage) {
         router.replace('/parent/login');
       } else {

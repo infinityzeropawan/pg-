@@ -12,7 +12,7 @@ export function ManagerRequireManager({ children }: { children: React.ReactNode 
     if (typeof window === 'undefined') return;
     const session = getSession();
     const isLoginPage = pathname?.includes('/manager/login');
-    if (!session || session.role !== 'manager') {
+    if (!session || session.role?.toLowerCase() !== 'manager') {
       if (!isLoginPage) {
         router.replace('/manager/login');
       } else {

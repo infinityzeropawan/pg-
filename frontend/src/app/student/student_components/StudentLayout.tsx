@@ -40,7 +40,7 @@ function StudentLayoutInner({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const session = getSession();
-    if (!session || session.role !== 'student') {
+    if (!session || session.role?.toLowerCase() !== 'student') {
       router.replace('/student/login');
     }
   }, [router]);

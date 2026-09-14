@@ -10,6 +10,7 @@ import {
 
 import { HomeHeader } from '@/components/home/HomeHeader';
 import { HomeFooter } from '@/components/home/HomeFooter';
+import { STORAGE_KEYS } from '@/lib/storage/keys';
 
 export default function DemoPage() {
   const router = useRouter();
@@ -17,23 +18,23 @@ export default function DemoPage() {
 
   const demoAccounts = [
     {
-      role: 'OWNER',
+      role: 'owner',
       title: 'PG Owner Portal',
       subtitle: 'Multi-property P&L, Occupancy Analytics, Rent Collection & Maintenance',
       icon: Building2,
-      email: 'owner@smartpg.com',
-      password: 'Owner@123',
+      email: 'owner@gmail.com',
+      password: 'Owner3@123',
       color: 'from-blue-500/20 to-indigo-500/10 border-blue-500/30 text-blue-600',
       badge: 'Full Business Suite',
       href: '/owner/dashboard',
       loginApiRole: 'OWNER',
     },
     {
-      role: 'MANAGER',
+      role: 'manager',
       title: 'Branch Manager Portal',
       subtitle: 'Property Operations, Room Beds, Staff Attendance, Tenant Onboarding',
       icon: UserCheck,
-      email: 'manager@smartpg.com',
+      email: 'manager3@gmail.com',
       password: 'Manager@123',
       color: 'from-emerald-500/20 to-teal-500/10 border-emerald-500/30 text-emerald-600',
       badge: 'Branch Operations',
@@ -41,7 +42,7 @@ export default function DemoPage() {
       loginApiRole: 'MANAGER',
     },
     {
-      role: 'STUDENT',
+      role: 'student',
       title: 'Student Resident App',
       subtitle: 'Room Rent Dues, Mess Menu & Ordering, QR Gate Movements, SOS Alert',
       icon: User,
@@ -53,7 +54,7 @@ export default function DemoPage() {
       loginApiRole: 'STUDENT',
     },
     {
-      role: 'PARENT',
+      role: 'parent',
       title: 'Parent Safety Portal',
       subtitle: 'Child Live Location Presence, Gate In/Out Logs, Fee Payment & Safety Feed',
       icon: Users,
@@ -68,33 +69,55 @@ export default function DemoPage() {
 
   const handleLaunchDemo = async (acc: typeof demoAccounts[0]) => {
     setLoadingRole(acc.role);
+    const roleKey = acc.role.toLowerCase();
+
     try {
-      const res = await fetch('http://localhost:5000/api/v1/auth/login', {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api/v1';
+      const res = await fetch(`${API_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: acc.email, password: acc.password, role: acc.loginApiRole }),
+        body: JSON.stringify({ email: acc.email, password: acc.password, expectedRole: acc.loginApiRole }),
       });
       const json = await res.json();
       if (json.success && json.data) {
         if (typeof window !== 'undefined') {
+          const user = json.data.user;
+          const sessionUser = {
+            id: user.id,
+            role: roleKey,
+            name: user.name || acc.title,
+            email: user.email || acc.email,
+            ownerId: user.ownerId || 'demo_owner',
+            propertyId: user.propertyId || 'demo_prop',
+            mustChangePassword: false
+          };
+          localStorage.setItem(STORAGE_KEYS.CURRENT_SESSION, JSON.stringify(sessionUser));
+          localStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, json.data.accessToken);
           localStorage.setItem('access_token', json.data.accessToken);
           localStorage.setItem('refresh_token', json.data.refreshToken);
-          localStorage.setItem('spg_current_session', JSON.stringify(json.data.user));
         }
+        router.push(acc.href);
+        return;
       }
     } catch (e) {
       console.warn('Backend connection fallback for demo preview:', e);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('spg_current_session', JSON.stringify({
-          id: `demo_${acc.role.toLowerCase()}`,
-          role: acc.role,
-          name: acc.title,
-          email: acc.email,
-        }));
-      }
-    } finally {
-      router.push(acc.href);
     }
+
+    // Direct fallback for instant client-side preview
+    if (typeof window !== 'undefined') {
+      const fallbackSession = {
+        id: `demo_${roleKey}`,
+        role: roleKey,
+        name: acc.title,
+        email: acc.email,
+        ownerId: 'demo_owner',
+        propertyId: 'demo_prop',
+        mustChangePassword: false
+      };
+      localStorage.setItem(STORAGE_KEYS.CURRENT_SESSION, JSON.stringify(fallbackSession));
+      localStorage.setItem('spg_current_session', JSON.stringify(fallbackSession));
+    }
+    router.push(acc.href);
   };
 
   return (

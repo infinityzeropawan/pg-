@@ -17,7 +17,7 @@ export function OwnerRequireOwner({ children }: { children: React.ReactNode }) {
     const session = getSession();
     const isLoginPage = pathname?.includes('/owner/login');
 
-    if (!session || session.role !== 'owner') {
+    if (!session || session.role?.toLowerCase() !== 'owner') {
       if (!isLoginPage) {
         router.replace('/owner/login');
       } else {

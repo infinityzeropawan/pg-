@@ -34,7 +34,8 @@ function StaffLayoutInner({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const session = getSession();
-    if (!session || session.role !== 'staff') {
+    const roleLower = session?.role?.toLowerCase();
+    if (!session || (roleLower !== 'staff' && roleLower !== 'cook')) {
       router.replace('/staff/login');
     }
   }, [router]);
