@@ -43,6 +43,8 @@ const NAV_ITEMS = [
 
 export function OwnerLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const isAuthPage = pathname?.includes('/login') || pathname?.includes('/first-login');
+  if (isAuthPage) return <>{children}</>;
   const router = useRouter();
   const user = typeof window !== 'undefined' ? getSession() : null;
   const { properties, selectedPropertyId, setSelectedPropertyId } = useOwnerPropertyContext();

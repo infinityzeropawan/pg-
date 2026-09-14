@@ -17,6 +17,8 @@ const NAV_ITEMS = [
 
 function ParentLayoutInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const isAuthPage = pathname?.includes('/login') || pathname?.includes('/first-login');
+  if (isAuthPage) return <>{children}</>;
   const router = useRouter();
   const user = typeof window !== 'undefined' ? getSession() : null;
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);

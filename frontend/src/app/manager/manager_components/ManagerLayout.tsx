@@ -22,6 +22,8 @@ import '../manager-theme.css';
 type MenuItem = { key: string; icon: React.ElementType; href: string; label?: string };
 export function ManagerLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const isAuthPage = pathname?.includes('/login') || pathname?.includes('/first-login');
+  if (isAuthPage) return <>{children}</>;
   const user = useManagerSession();
   const { properties, selectedPropertyId, setSelectedPropertyId } = useManagerPropertyContext();
   const { lang, setLang, t } = useManagerI18n();

@@ -164,6 +164,10 @@ function StaffLayoutInner({ children }: { children: React.ReactNode }) {
 }
 
 export function StaffLayout({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const isAuthPage = pathname?.includes('/login') || pathname?.includes('/first-login');
+  if (isAuthPage) return <>{children}</>;
+
   return (
     <StaffProvider>
       <StaffLayoutInner>{children}</StaffLayoutInner>

@@ -195,6 +195,10 @@ function StudentLayoutInner({ children }: { children: React.ReactNode }) {
 }
 
 export function StudentLayout({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const isAuthPage = pathname?.includes('/login') || pathname?.includes('/first-login');
+  if (isAuthPage) return <>{children}</>;
+
   return (
     <StudentProvider>
       <StudentLayoutInner>{children}</StudentLayoutInner>
