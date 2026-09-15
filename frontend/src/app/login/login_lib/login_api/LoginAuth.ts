@@ -1,15 +1,12 @@
 import { db } from '@/lib/storage/db';
 import { STORAGE_KEYS } from '@/lib/storage/keys';
-import type { User } from '@/lib/types/models';
-import type { SessionUser } from '@/lib/types';
-import type { Role } from '@/lib/types';
-
-const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api/v1';
+import { apiUrl } from '@/lib/config/apiBase';
+import type { User, SessionUser, Role } from '@/lib/types/models';
 
 export const authApi = {
   async login({ email, password, expectedRole }: { email: string; password?: string; expectedRole?: Role }) {
     try {
-      const response = await fetch(`${BACKEND_URL}/auth/login`, {
+      const response = await fetch(apiUrl('/api/v1/auth/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -34,23 +31,27 @@ export const authApi = {
       const rawUser = resData.data.user;
       const sessionUser: SessionUser = {
         id: rawUser.id,
-        role: rawUser.role as Role,
-        name: rawUser.name,
+        role: rawUser.role.toLowerCase() as Role,
+        name: rawUser.name || rawUser.fullName,
         email: rawUser.email,
         ownerId: rawUser.ownerId,
+        propertyId: rawUser.propertyId,
+        assignedPropertyIds: rawUser.assignedPropertyIds,
         mustChangePassword: rawUser.mustChangePassword,
+        isDemo: rawUser.isDemo,
       };
 
       if (typeof window !== 'undefined') {
         localStorage.setItem(STORAGE_KEYS.CURRENT_SESSION, JSON.stringify(sessionUser));
+        localStorage.setItem('spg_current_session', JSON.stringify(sessionUser));
         localStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, resData.data.accessToken);
         localStorage.setItem('access_token', resData.data.accessToken);
-        localStorage.setItem('refresh_token', resData.data.refreshToken);
+        if (resData.data.refreshToken) localStorage.setItem('refresh_token', resData.data.refreshToken);
       }
 
       return sessionUser;
     } catch (backendErr: any) {
-      console.warn('Backend login fallback to local storage:', backendErr.message);
+      console.warn('Backend login notice:', backendErr.message);
 
       // LocalStorage Fallback for offline dev
       const users = db.getAll<User>(STORAGE_KEYS.USERS);
@@ -59,44 +60,36 @@ export const authApi = {
         u.email.toLowerCase().trim() === email.toLowerCase().trim() && 
         !u.isDeleted && 
         u.status === 'Active' && 
-        (!expectedRole || u.role === expectedRole)
+        (!expectedRole || u.role.toLowerCase() === expectedRole.toLowerCase())
       );
       
-      if (!user) throw new Error(backendErr.message || 'User not found or inactive');
-      if (password && user.password !== password) throw new Error('Invalid password');
+      if (user) {
+        if (password && user.password !== password) throw new Error('Invalid password');
+        const sessionUser: SessionUser = {
+          id: user.id,
+          role: user.role.toLowerCase() as Role,
+          name: user.name,
+          email: user.email,
+          ownerId: user.ownerId,
+          mustChangePassword: user.mustChangePassword,
+        };
 
-      const sessionUser: SessionUser = {
-        id: user.id,
-        role: user.role,
-        name: user.name,
-        email: user.email,
-        propertyId: user.propertyId,
-        ownerId: user.ownerId,
-        assignedPropertyIds: user.assignedPropertyIds,
-        mustChangePassword: user.mustChangePassword
-      };
+        if (typeof window !== 'undefined') {
+          localStorage.setItem(STORAGE_KEYS.CURRENT_SESSION, JSON.stringify(sessionUser));
+          localStorage.setItem('spg_current_session', JSON.stringify(sessionUser));
+        }
 
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(STORAGE_KEYS.CURRENT_SESSION, JSON.stringify(sessionUser));
+        return sessionUser;
       }
-      
-      return sessionUser;
+
+      throw new Error(backendErr.message || 'Authentication failed');
     }
   },
 
   logout() {
     if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('access_token');
-      if (token) {
-        fetch(`${BACKEND_URL}/auth/logout`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          }
-        }).catch(() => {});
-      }
       localStorage.removeItem(STORAGE_KEYS.CURRENT_SESSION);
+      localStorage.removeItem('spg_current_session');
       localStorage.removeItem(STORAGE_KEYS.AUTH_TOKEN);
       localStorage.removeItem('access_token');
       localStorage.removeItem('refresh_token');
@@ -105,31 +98,31 @@ export const authApi = {
 
   currentUser(): SessionUser | null {
     if (typeof window === 'undefined') return null;
-    const data = localStorage.getItem(STORAGE_KEYS.CURRENT_SESSION);
-    return data ? JSON.parse(data) : null;
+    const raw = localStorage.getItem(STORAGE_KEYS.CURRENT_SESSION) || localStorage.getItem('spg_current_session');
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
   },
 
   async changePassword(userId: string, newPassword: string) {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
-    if (token) {
-      const res = await fetch(`${BACKEND_URL}/auth/change-password`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ newPassword }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.message || 'Failed to change password');
-      return;
+    const users = db.getAll<User>(STORAGE_KEYS.USERS);
+    const userIndex = users.findIndex(u => u.id === userId);
+    
+    if (userIndex !== -1) {
+      db.update(STORAGE_KEYS.USERS, userId, { password: newPassword, mustChangePassword: false });
+      
+      const currentSession = this.currentUser();
+      if (currentSession && currentSession.id === userId) {
+        currentSession.mustChangePassword = false;
+        localStorage.setItem(STORAGE_KEYS.CURRENT_SESSION, JSON.stringify(currentSession));
+        localStorage.setItem('spg_current_session', JSON.stringify(currentSession));
+      }
+      return true;
     }
-
-    const user = db.getById<User>(STORAGE_KEYS.USERS, userId);
-    if (!user) throw new Error('User not found');
-    db.update<User>(STORAGE_KEYS.USERS, userId, { 
-      password: newPassword, 
-      mustChangePassword: false 
-    });
+    
+    return true;
   }
 };

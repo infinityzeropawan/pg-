@@ -13,14 +13,15 @@ import { api } from '@/app/manager/manager_lib/manager_api/ManagerApi';
 import { useManagerUrlPagination } from '@/app/manager/manager_components/manager_hooks/useManagerUrlPagination';
 import { ExpenseFormSchema } from '@/app/manager/expenses/ManagerExpenses_types/ManagerExpenses.types';
 
-import type { ExpenseFormData } from '@/app/manager/expenses/ManagerExpenses_types/ManagerExpenses.types';
+import { adminRequest } from '@/app/owner/owner_lib/owner_api/AdminClient';
+
 export function useManagerExpenses(selectedPropertyId: string | null, propsLoading: boolean, userId: string | undefined) {
   const [loading, setLoading] = useState(true);
   const [expenses, setExpenses] = useState<unknown[]>([]);
   const [studentCount, setStudentCount] = useState(0);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  // React Hook Form with Zod resolver â€” replaces all manual useState + validation
+  // React Hook Form with Zod resolver — replaces all manual useState + validation
   const form = useForm<ExpenseFormData>({
 
     resolver: zodResolver(ExpenseFormSchema) as unknown,
@@ -30,14 +31,26 @@ export function useManagerExpenses(selectedPropertyId: string | null, propsLoadi
       description: '',
     },
   });
-  const loadExpenses = () => {
+
+  const loadExpenses = async () => {
     if (!userId || !selectedPropertyId) return;
     setLoading(true);
-    const stats = api.finance.getStats(userId, selectedPropertyId);
-    setExpenses(stats.expenses);
-    const students = api.managerOperations.listStudents(selectedPropertyId);
-    setStudentCount(students.length);
-    setLoading(false);
+    try {
+      const backendExpenses = await adminRequest<any[]>(`/expenses?propertyId=${selectedPropertyId}`);
+      if (Array.isArray(backendExpenses)) {
+        setExpenses(backendExpenses);
+      } else {
+        const stats = api.finance.getStats(userId, selectedPropertyId);
+        setExpenses(stats.expenses);
+      }
+    } catch {
+      const stats = api.finance.getStats(userId, selectedPropertyId);
+      setExpenses(stats.expenses);
+    } finally {
+      const students = api.managerOperations.listStudents(selectedPropertyId);
+      setStudentCount(students.length);
+      setLoading(false);
+    }
   };
   // Re-fetch expenses when property changes or context loading state updates.
   useEffect(() => {
@@ -60,21 +73,30 @@ export function useManagerExpenses(selectedPropertyId: string | null, propsLoadi
     form.reset();
     setIsModalOpen(false);
   };
-  // RHF-compatible submit handler â€” receives validated data directly, no manual checks needed
+  // RHF-compatible submit handler — receives validated data directly, no manual checks needed
 
   const handleSubmit = form.handleSubmit(async (data: ExpenseFormData) => {
     if (!userId || !selectedPropertyId) return;
     setIsSubmitting(true);
-    api.finance.createExpense({
-      propertyId: selectedPropertyId,      category: data.category as unknown,
-
-      amount: Number(data.amount),
-      description: data.description,
-    }, userId);
-    toast.success('Expense logged successfully');
-    setIsSubmitting(false);
-    onModalClose();
-    loadExpenses();
+    try {
+      await adminRequest('/expenses', {
+        method: 'POST',
+        body: JSON.stringify({
+          propertyId: selectedPropertyId,
+          category: data.category,
+          amount: Number(data.amount),
+          description: data.description,
+          title: data.description || `${data.category} Expense`,
+        })
+      });
+      toast.success('Expense logged successfully');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to log expense');
+    } finally {
+      setIsSubmitting(false);
+      onModalClose();
+      loadExpenses();
+    }
   });
   return {
     loading, expenses, studentCount,

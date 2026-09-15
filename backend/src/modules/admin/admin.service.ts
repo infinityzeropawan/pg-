@@ -873,4 +873,74 @@ export class AdminService {
       netProfit: totalCollected - totalExpenses,
     };
   }
+
+  static async listExpenses(ownerId: string, propertyId?: string) {
+    return prisma.expense.findMany({
+      where: { ownerId, ...(propertyId ? { propertyId } : {}) },
+      include: { property: true },
+      orderBy: { expenseDate: 'desc' },
+    });
+  }
+
+  static async createExpense(ownerId: string, data: { propertyId: string; category: string; title: string; amount: number; expenseDate?: Date }) {
+    return prisma.expense.create({
+      data: {
+        ownerId,
+        propertyId: data.propertyId,
+        category: data.category || 'OPERATIONAL',
+        title: data.title,
+        amount: Math.round(data.amount * 100),
+        expenseDate: data.expenseDate || new Date(),
+      },
+    });
+  }
+
+  static async listEnquiries(ownerId: string, propertyId?: string) {
+    const props = await prisma.property.findMany({ where: { ownerId }, select: { id: true } });
+    const propertyIds = props.map(p => p.id);
+    return prisma.enquiry.findMany({
+      where: { propertyId: propertyId ? propertyId : { in: propertyIds } },
+      include: { property: true },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  static async createEnquiry(data: { propertyId: string; name: string; phone: string; email?: string; message?: string }) {
+    return prisma.enquiry.create({
+      data: {
+        propertyId: data.propertyId,
+        name: data.name,
+        phone: data.phone,
+        email: data.email,
+        message: data.message,
+      },
+    });
+  }
+
+  static async resolveEnquiry(id: string) {
+    return prisma.enquiry.update({
+      where: { id },
+      data: { isResolved: true },
+    });
+  }
+
+  static async listStaffAttendance(ownerId: string, propertyId?: string) {
+    const props = await prisma.property.findMany({ where: { ownerId }, select: { id: true } });
+    const propertyIds = props.map(p => p.id);
+    return prisma.attendance.findMany({
+      where: { propertyId: propertyId ? propertyId : { in: propertyIds } },
+      orderBy: { date: 'desc' },
+      take: 100,
+    });
+  }
+
+  static async recordStaffAttendance(data: { propertyId: string; userId: string; date: Date; status: any; remarks?: string }) {
+    const dateStr = new Date(data.date).toISOString().split('T')[0];
+    const targetDate = new Date(dateStr + 'T00:00:00.000Z');
+    return prisma.attendance.upsert({
+      where: { propertyId_userId_date: { propertyId: data.propertyId, userId: data.userId, date: targetDate } },
+      update: { status: data.status, remarks: data.remarks },
+      create: { propertyId: data.propertyId, userId: data.userId, date: targetDate, status: data.status, remarks: data.remarks },
+    });
+  }
 }

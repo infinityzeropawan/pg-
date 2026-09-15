@@ -474,3 +474,101 @@ export const createComplaint = async (req: AuthRequest, res: Response) => {
   }
 };
 
+// ==========================================
+// EXPENSES
+// ==========================================
+export const listExpenses = async (req: AuthRequest, res: Response) => {
+  try {
+    const ownerId = req.user?.ownerId || req.user?.userId || '';
+    const propertyId = req.query.propertyId as string | undefined;
+    const data = await AdminService.listExpenses(ownerId, propertyId);
+    return sendSuccess(res, 'Expenses fetched successfully', data);
+  } catch (error: any) {
+    return sendError(res, error.message || 'Failed to fetch expenses', 500, error);
+  }
+};
+
+export const createExpense = async (req: AuthRequest, res: Response) => {
+  try {
+    const ownerId = req.user?.ownerId || req.user?.userId || '';
+    const { propertyId, category, title, amount, expenseDate } = req.body;
+    if (!propertyId || !title || !amount) {
+      return sendError(res, 'Property ID, title, and amount required', 400);
+    }
+    const item = await AdminService.createExpense(ownerId, {
+      propertyId,
+      category,
+      title,
+      amount: Number(amount),
+      expenseDate: expenseDate ? new Date(expenseDate) : undefined,
+    });
+    return sendSuccess(res, 'Expense recorded successfully', item, 201);
+  } catch (error: any) {
+    return sendError(res, error.message || 'Failed to record expense', 500, error);
+  }
+};
+
+// ==========================================
+// ENQUIRIES
+// ==========================================
+export const listEnquiries = async (req: AuthRequest, res: Response) => {
+  try {
+    const ownerId = req.user?.ownerId || req.user?.userId || '';
+    const propertyId = req.query.propertyId as string | undefined;
+    const data = await AdminService.listEnquiries(ownerId, propertyId);
+    return sendSuccess(res, 'Enquiries fetched successfully', data);
+  } catch (error: any) {
+    return sendError(res, error.message || 'Failed to fetch enquiries', 500, error);
+  }
+};
+
+export const createEnquiry = async (req: AuthRequest, res: Response) => {
+  try {
+    const { propertyId, name, phone, email, message } = req.body;
+    if (!propertyId || !name || !phone) {
+      return sendError(res, 'Property ID, name, and phone required', 400);
+    }
+    const item = await AdminService.createEnquiry({ propertyId, name, phone, email, message });
+    return sendSuccess(res, 'Enquiry submitted successfully', item, 201);
+  } catch (error: any) {
+    return sendError(res, error.message || 'Failed to submit enquiry', 500, error);
+  }
+};
+
+export const resolveEnquiry = async (req: AuthRequest, res: Response) => {
+  try {
+    const id = String(req.params.id);
+    const item = await AdminService.resolveEnquiry(id);
+    return sendSuccess(res, 'Enquiry resolved successfully', item);
+  } catch (error: any) {
+    return sendError(res, error.message || 'Failed to resolve enquiry', 500, error);
+  }
+};
+
+// ==========================================
+// STAFF ATTENDANCE
+// ==========================================
+export const listStaffAttendance = async (req: AuthRequest, res: Response) => {
+  try {
+    const ownerId = req.user?.ownerId || req.user?.userId || '';
+    const propertyId = req.query.propertyId as string | undefined;
+    const data = await AdminService.listStaffAttendance(ownerId, propertyId);
+    return sendSuccess(res, 'Staff attendance fetched successfully', data);
+  } catch (error: any) {
+    return sendError(res, error.message || 'Failed to fetch staff attendance', 500, error);
+  }
+};
+
+export const recordStaffAttendance = async (req: AuthRequest, res: Response) => {
+  try {
+    const { propertyId, userId, date, status, remarks } = req.body;
+    if (!propertyId || !userId || !date || !status) {
+      return sendError(res, 'Property ID, User ID, Date, and Status required', 400);
+    }
+    const item = await AdminService.recordStaffAttendance({ propertyId, userId, date: new Date(date), status, remarks });
+    return sendSuccess(res, 'Staff attendance recorded successfully', item);
+  } catch (error: any) {
+    return sendError(res, error.message || 'Failed to record staff attendance', 500, error);
+  }
+};
+

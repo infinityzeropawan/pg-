@@ -6,6 +6,8 @@ import { useManagerSession } from '@/app/manager/manager_components/manager_hook
 
 import type { GateLog, UseManagerGateLogsReturn } from '@/app/manager/gate-logs/ManagerGateLogs_types/ManagerGateLogs.types';
 
+import { adminRequest } from '@/app/owner/owner_lib/owner_api/AdminClient';
+
 export function useManagerGateLogs(): UseManagerGateLogsReturn {
   const { selectedPropertyId, loading: ctxLoading } = useManagerPropertyContext();
   const [logs, setLogs] = useState<GateLog[]>([]);
@@ -14,10 +16,20 @@ export function useManagerGateLogs(): UseManagerGateLogsReturn {
   const itemsPerPage = 10;
   const user = useManagerSession();
 
-  const loadData = () => {
+  const loadData = async () => {
     if (!ctxLoading && selectedPropertyId) {
-      const fetchedLogs = api.managerOperations.listGateLogs(selectedPropertyId) as unknown as GateLog[];
-      setLogs(fetchedLogs);
+      try {
+        const backendLogs = await adminRequest<any[]>(`/properties/${selectedPropertyId}/gate-logs`);
+        if (Array.isArray(backendLogs)) {
+          setLogs(backendLogs as unknown as GateLog[]);
+        } else {
+          const fetchedLogs = api.managerOperations.listGateLogs(selectedPropertyId) as unknown as GateLog[];
+          setLogs(fetchedLogs);
+        }
+      } catch {
+        const fetchedLogs = api.managerOperations.listGateLogs(selectedPropertyId) as unknown as GateLog[];
+        setLogs(fetchedLogs);
+      }
       const studentList = api.managerOperations.listStudents(selectedPropertyId);
       setStudents(studentList);
     }
@@ -32,7 +44,7 @@ export function useManagerGateLogs(): UseManagerGateLogsReturn {
     setCurrentPage(1);
   }, [selectedPropertyId]);
 
-  const handleAdd = (
+  const handleAdd = async (
     studentId: string, 
     type: 'entry' | 'exit', 
     isLate: boolean,
@@ -41,16 +53,28 @@ export function useManagerGateLogs(): UseManagerGateLogsReturn {
     expectedReturnTime?: string
   ) => {
     if (!user || !selectedPropertyId || !studentId) return;
-    api.managerOperations.addGateLog({
-      propertyId: selectedPropertyId,
-      studentId,
-      type,
-      isLate,
-      reason,
-      destination,
-      expectedReturnTime,
-      managerId: user.id
-    });
+    try {
+      await adminRequest('/gate-logs', {
+        method: 'POST',
+        body: JSON.stringify({
+          propertyId: selectedPropertyId,
+          tenantId: studentId,
+          type: type.toUpperCase(),
+          reason,
+        })
+      });
+    } catch {
+      api.managerOperations.addGateLog({
+        propertyId: selectedPropertyId,
+        studentId,
+        type,
+        isLate,
+        reason,
+        destination,
+        expectedReturnTime,
+        managerId: user.id
+      });
+    }
     loadData();
   };
 

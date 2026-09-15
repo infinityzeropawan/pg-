@@ -27,6 +27,13 @@ import {
   listMaintenance,
   createMaintenance,
   getFinanceSummary,
+  listExpenses,
+  createExpense,
+  listEnquiries,
+  createEnquiry,
+  resolveEnquiry,
+  listStaffAttendance,
+  recordStaffAttendance,
 } from './admin.controller';
 
 const router = Router();
@@ -53,6 +60,8 @@ router.patch('/beds/:bedId/status', updateBedStatus);
 // Staff & Managers
 router.get('/staff', listStaff);
 router.post('/staff', createStaff);
+router.get('/staff/attendance', listStaffAttendance);
+router.post('/staff/attendance', recordStaffAttendance);
 
 // Tenants / Residents
 router.get('/tenants', listTenants);
@@ -80,5 +89,13 @@ router.put('/food-menu', updateFoodMenu);
 router.get('/maintenance', listMaintenance);
 router.post('/maintenance', createMaintenance);
 
-export default router;
+// Expenses
+router.get('/expenses', listExpenses);
+router.post('/expenses', createExpense);
 
+// Enquiries
+router.get('/enquiries', listEnquiries);
+router.post('/enquiries', createEnquiry);
+router.patch('/enquiries/:id/resolve', resolveEnquiry);
+
+export default router;

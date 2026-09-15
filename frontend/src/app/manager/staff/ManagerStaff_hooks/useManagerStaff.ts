@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useManagerPropertyContext } from '@/app/manager/manager_components/ManagerPropertyContext';
+import { adminRequest } from '@/app/owner/owner_lib/owner_api/AdminClient';
 import type { StaffMember, StaffAttendance } from '../ManagerStaff_types/Staff.types';
 
 export function useManagerStaff() {
@@ -8,7 +9,7 @@ export function useManagerStaff() {
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [attendance, setAttendance] = useState<StaffAttendance[]>([]);
 
-  useEffect(() => {
+  const fetchStaffData = useCallback(async () => {
     if (!selectedPropertyId) {
       setStaff([]);
       setAttendance([]);
@@ -17,24 +18,51 @@ export function useManagerStaff() {
     }
 
     setLoading(true);
-    // Mock Data
-    setTimeout(() => {
-      setStaff([
-        { id: 'stf-1', name: 'Ramesh Kumar', role: 'Housekeeping', phone: '9876543210', shift: '08:00 AM - 05:00 PM', status: 'Active' },
-        { id: 'stf-2', name: 'Suresh Singh', role: 'Security', phone: '9876543211', shift: '08:00 PM - 08:00 AM', status: 'Active' },
-        { id: 'stf-3', name: 'Rajesh Sharma', role: 'Kitchen', phone: '9876543212', shift: '06:00 AM - 02:00 PM', status: 'Inactive' },
-        { id: 'stf-4', name: 'Mukesh Bhai', role: 'Maintenance', phone: '9876543213', shift: '09:00 AM - 06:00 PM', status: 'Active' },
-      ]);
+    try {
       const today = new Date().toISOString().split('T')[0] || '';
-      setAttendance([
-        { staffId: 'stf-1', date: today, status: 'Present' },
-        { staffId: 'stf-2', date: today, status: 'Present' },
+      const [backendStaff, backendAtt] = await Promise.all([
+        adminRequest<any[]>('/staff').catch(() => []),
+        adminRequest<any[]>(`/staff/attendance?date=${today}`).catch(() => [])
       ]);
+
+      if (Array.isArray(backendStaff) && backendStaff.length > 0) {
+        const filtered = backendStaff
+          .filter(s => !s.assignedPropertyIds || s.assignedPropertyIds.length === 0 || s.assignedPropertyIds.includes(selectedPropertyId))
+          .map(s => ({
+            id: s.id,
+            name: s.name || s.user?.name || 'Staff Member',
+            role: s.role || s.staffType || 'Staff',
+            phone: s.phone || s.user?.phone || 'N/A',
+            shift: s.shift || 'Flexible',
+            status: s.status || 'Active'
+          }));
+        setStaff(filtered as StaffMember[]);
+      } else {
+        setStaff([]);
+      }
+
+      if (Array.isArray(backendAtt)) {
+        setAttendance(backendAtt.map(a => ({
+          staffId: a.staffUserId || a.staffId || a.id,
+          date: a.date || today,
+          status: (a.status === 'present' || a.status === 'Present') ? 'Present' : a.status
+        })));
+      } else {
+        setAttendance([]);
+      }
+    } catch {
+      setStaff([]);
+      setAttendance([]);
+    } finally {
       setLoading(false);
-    }, 400);
+    }
   }, [selectedPropertyId]);
 
-  const markAttendance = (staffId: string, status: 'Present' | 'Absent' | 'On Leave') => {
+  useEffect(() => {
+    fetchStaffData();
+  }, [fetchStaffData]);
+
+  const markAttendance = async (staffId: string, status: 'Present' | 'Absent' | 'On Leave') => {
     const today = new Date().toISOString().split('T')[0] || '';
     setAttendance(prev => {
       const existing = prev.find(a => a.staffId === staffId && a.date === today);
@@ -43,6 +71,22 @@ export function useManagerStaff() {
       }
       return [...prev, { staffId, date: today, status }];
     });
+
+    try {
+      if (selectedPropertyId) {
+        await adminRequest('/staff/attendance', {
+          method: 'POST',
+          body: JSON.stringify({
+            propertyId: selectedPropertyId,
+            staffUserId: staffId,
+            status: status.toLowerCase(),
+            date: today
+          })
+        });
+      }
+    } catch {
+      // Best effort
+    }
   };
 
   const addStaff = (newStaff: StaffMember) => {
@@ -57,3 +101,4 @@ export function useManagerStaff() {
     addStaff
   };
 }
+
