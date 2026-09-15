@@ -591,6 +591,59 @@ async function main() {
     console.log('✅ Seeded sample support ticket');
   }
 
+  // 11. Seed Demo Accounts (isDemo: true)
+  const demoAccounts = [
+    { email: 'demo.owner@smartpg.com', phone: '9800000001', name: 'Demo PG Owner', role: UserRole.OWNER },
+    { email: 'demo.manager@smartpg.com', phone: '9800000002', name: 'Demo Branch Manager', role: UserRole.MANAGER },
+    { email: 'demo.cook@smartpg.com', phone: '9800000003', name: 'Demo Cook Staff', role: UserRole.STAFF },
+    { email: 'demo.parent@smartpg.com', phone: '9800000005', name: 'Demo Parent Guardian', role: UserRole.PARENT },
+    { email: 'demo.student@smartpg.com', phone: '9800000004', name: 'Demo Student Resident', role: UserRole.STUDENT },
+  ];
+
+  const demoPassHash = await bcrypt.hash('Demo@123', 10);
+  for (const d of demoAccounts) {
+    let existing = await prisma.user.findUnique({ where: { email: d.email } });
+    if (!existing) {
+      existing = await prisma.user.create({
+        data: {
+          ownerId: owner?.id || null,
+          email: d.email,
+          phone: d.phone,
+          fullName: d.name,
+          passwordHash: demoPassHash,
+          role: d.role,
+          mustChangePassword: false,
+          isDemo: true,
+          isActive: true,
+          isSuspended: false,
+        },
+      });
+      console.log(`✅ Seeded Demo Account: ${d.email} (Role: ${d.role})`);
+    } else if (!existing.isActive || existing.isSuspended) {
+      await prisma.user.update({
+        where: { id: existing.id },
+        data: { isActive: true, isSuspended: false },
+      });
+    }
+
+    if (d.role === UserRole.MANAGER || d.role === UserRole.STAFF) {
+      if (property) {
+        const assign = await prisma.staffAssignment.findFirst({
+          where: { userId: existing.id, propertyId: property.id },
+        });
+        if (!assign) {
+          await prisma.staffAssignment.create({
+            data: {
+              userId: existing.id,
+              propertyId: property.id,
+              permissions: JSON.stringify(['all']),
+            },
+          });
+        }
+      }
+    }
+  }
+
   console.log('🎉 Comprehensive database seeding completed successfully!');
 }
 

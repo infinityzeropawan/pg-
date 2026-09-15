@@ -10,10 +10,10 @@ export const authApi = {
   async login({ email, password, expectedRole }: { email: string; password?: string; expectedRole?: Role }) {
     try {
       return await loginAuthApi.login({ email, password, expectedRole: expectedRole || 'manager' });
-    } catch {
+    } catch (backendErr: any) {
       const users = db.getAll<User>(STORAGE_KEYS.USERS);
       const user = users.find(u => u.email && u.email.toLowerCase().trim() === email.toLowerCase().trim() && !u.isDeleted && u.status === 'Active' && (!expectedRole || u.role === expectedRole));
-      if (!user) throw new Error('User not found or inactive');
+      if (!user) throw backendErr;
       if (password && user.password !== password) throw new Error('Invalid password');
       const sessionUser: SessionUser = {
         id: user.id,

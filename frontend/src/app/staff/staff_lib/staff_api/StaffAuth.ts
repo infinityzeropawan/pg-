@@ -46,7 +46,7 @@ export const authApi = {
       const users = db.getAll<User>(STORAGE_KEYS.USERS);
       const user = users.find(u => u.email && u.email.toLowerCase().trim() === email.toLowerCase().trim() && !u.isDeleted && u.status === 'Active' && (!expectedRole || u.role.toLowerCase() === expectedRole.toLowerCase()));
       
-      if (!user) throw new Error('User not found or inactive');
+      if (!user) throw backendErr;
       if (password && user.password !== password) throw new Error('Invalid password');
 
       const sessionUser: any = {
