@@ -41,9 +41,49 @@ export function OwnerTeamMain() {
   useEffect(() => {
     if (!user) return;
     setLoading(true);
-    const members = api.listByOwner(user.id);
-    setTeam(members);
-    setLoading(false);
+    api.fetchStaff()
+      .then((backendStaff) => {
+        if (Array.isArray(backendStaff) && backendStaff.length > 0) {
+          const mapped = backendStaff.map((s: any) => ({
+            user: {
+              id: s.userId || s.user?.id || s.id,
+              name: s.name || s.user?.name || 'Staff Member',
+              phone: s.phone || s.user?.phone || 'N/A',
+              email: s.email || s.user?.email || 'N/A',
+              role: s.role || s.staffType || 'staff',
+              status: s.status || 'Active',
+              assignedPropertyIds: s.assignedPropertyIds || [],
+            },
+            profile: {
+              id: s.id,
+              userId: s.userId || s.user?.id || s.id,
+              ownerId: s.ownerId || user.id,
+              staffType: s.staffType || (s.role === 'manager' ? 'manager' : 'cook'),
+              salary: s.salary || 0,
+              joinDate: s.joinDate || s.createdAt?.slice(0, 10) || new Date().toISOString().slice(0, 10),
+              shift: s.shift || 'Flexible',
+              permissions: s.permissions || {
+                canEditRent: false,
+                canAddExpense: false,
+                canOnboardStudent: false,
+                canBroadcast: false,
+                canCollectCash: false,
+              },
+              createdAt: s.createdAt || new Date().toISOString(),
+              updatedAt: s.updatedAt || new Date().toISOString(),
+            }
+          }));
+          setTeam(mapped as any);
+        } else {
+          setTeam(api.listByOwner(user.id));
+        }
+      })
+      .catch(() => {
+        setTeam(api.listByOwner(user.id));
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   }, [user?.id]);
 
   const filteredTeam = team.filter(member => {

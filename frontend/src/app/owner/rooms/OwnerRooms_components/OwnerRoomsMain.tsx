@@ -45,11 +45,49 @@ export function OwnerRoomsMain() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
-  const loadData = () => {
+  const loadData = async () => {
     if (!user) return;
     setLoading(true);
+    try {
+      let backendRooms: any[] = [];
+      if (selectedPropertyId === 'all') {
+        const results = await Promise.all(
+          properties.map(p => roomsApi.fetchRoomsByProperty(p.id).catch(() => []))
+        );
+        backendRooms = results.flat();
+      } else {
+        backendRooms = await roomsApi.fetchRoomsByProperty(selectedPropertyId).catch(() => []);
+      }
+
+      if (Array.isArray(backendRooms) && backendRooms.length > 0) {
+        const enhanced = backendRooms.map((r: any) => {
+          const beds = r.beds || [];
+          return {
+            id: r.id,
+            propertyId: r.propertyId,
+            floor: r.floorNumber || r.floor || 1,
+            number: r.roomNumber || r.number || '',
+            sharing: r.sharingType || r.sharing || 1,
+            rentPerBed: r.baseRentMonthly || r.rentPerBed || 0,
+            deposit: r.depositAmount || r.deposit || 0,
+            amenities: r.amenities ? (typeof r.amenities === 'string' ? JSON.parse(r.amenities) : r.amenities) : [],
+            status: r.status?.toLowerCase() === 'full' ? 'full' : 'available',
+            photos: r.photos ? (typeof r.photos === 'string' ? JSON.parse(r.photos) : r.photos) : [],
+            bedsCount: beds.length || (r.sharingType || 1),
+            vacantCount: beds.filter((b: any) => b.status === 'VACANT' || b.status === 'available').length,
+            createdAt: r.createdAt || new Date().toISOString(),
+            updatedAt: r.updatedAt || new Date().toISOString(),
+          };
+        });
+        setRooms(enhanced as any);
+        setLoading(false);
+        return;
+      }
+    } catch {
+      // Fallback
+    }
+
     let allRooms: Room[] = [];
-    
     if (selectedPropertyId === 'all') {
       properties.forEach(p => {
         allRooms = [...allRooms, ...roomsApi.listByProperty(p.id)];
@@ -63,7 +101,6 @@ export function OwnerRoomsMain() {
       return {
         ...r,
         bedsCount: beds.length,
-
         vacantCount: beds.filter((b: any) => b.status === 'available').length
       };
     });
@@ -82,7 +119,7 @@ export function OwnerRoomsMain() {
     }
   }, [selectedPropertyId, properties, user?.id]);
 
-  const handleCreateRoom = (e: React.FormEvent) => {
+  const handleCreateRoom = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
     setError('');
@@ -91,18 +128,29 @@ export function OwnerRoomsMain() {
     try {
       if (!(formData as any).propertyId) throw new Error('Please select a property.');
       
-      roomsApi.create({
-        propertyId: (formData as any).propertyId,
-        floor: (formData as any).floor,
-        number: (formData as any).number,
-        sharing: (formData as any).sharing,
-        rentPerBed: (formData as any).rentPerBed,
-        deposit: (formData as any).deposit,
-        amenities: (formData as any).amenities.split(',').map((s: any) => s.trim()).filter(Boolean),
-        status: 'available',
-        photos: [],
-        actorId: user.id
-      });
+      try {
+        await roomsApi.createBackendRoom({
+          propertyId: (formData as any).propertyId,
+          roomNumber: String((formData as any).number),
+          floorNumber: Number((formData as any).floor),
+          sharingType: Number((formData as any).sharing),
+          baseRentMonthly: Number((formData as any).rentPerBed),
+          depositAmount: Number((formData as any).deposit),
+        });
+      } catch {
+        roomsApi.create({
+          propertyId: (formData as any).propertyId,
+          floor: (formData as any).floor,
+          number: (formData as any).number,
+          sharing: (formData as any).sharing,
+          rentPerBed: (formData as any).rentPerBed,
+          deposit: (formData as any).deposit,
+          amenities: (formData as any).amenities.split(',').map((s: any) => s.trim()).filter(Boolean),
+          status: 'available',
+          photos: [],
+          actorId: user.id
+        });
+      }
       
       setShowAddModal(false);
       loadData();

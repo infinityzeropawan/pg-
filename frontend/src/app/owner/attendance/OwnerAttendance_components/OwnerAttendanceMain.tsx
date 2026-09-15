@@ -15,8 +15,7 @@ import { useTableSync } from '@/lib/hooks/useTableSync';
 import { attendanceApi } from '@/app/owner/owner_lib/owner_api/OwnerAttendance';
 import type { StaffAttendance } from '@/app/owner/owner_lib/owner_api/OwnerAttendance';
 import type { TeamMember } from '@/app/owner/owner_lib/owner_api/OwnerTeam';
-;
-
+import { adminRequest } from '@/app/owner/owner_lib/owner_api/AdminClient';
 
 export function OwnerAttendanceMain() {
   const user = typeof window !== 'undefined' ? getSession() : null;
@@ -33,16 +32,72 @@ export function OwnerAttendanceMain() {
   useEffect(() => {
     if (!user) return;
     setLoading(true);
-    
-    // Get all staff members for this owner
-    const allStaff = teamApi.listByOwner(user.id);
-    setStaff(allStaff);
 
-    // Get attendance for the selected date
-    const attData = attendanceApi.getAttendanceByOwner(user.id, dateStr);
-    setAttendance(attData);
+    Promise.all([
+      teamApi.fetchStaff().catch(() => []),
+      adminRequest<any[]>(`/staff/attendance?date=${dateStr}`).catch(() => [])
+    ])
+      .then(([backendStaff, backendAtt]) => {
+        if (Array.isArray(backendStaff) && backendStaff.length > 0) {
+          const mapped = backendStaff.map((s: any) => ({
+            user: {
+              id: s.userId || s.user?.id || s.id,
+              name: s.name || s.user?.name || 'Staff Member',
+              phone: s.phone || s.user?.phone || 'N/A',
+              email: s.email || s.user?.email || 'N/A',
+              role: s.role || s.staffType || 'staff',
+              status: s.status || 'Active',
+              assignedPropertyIds: s.assignedPropertyIds || [],
+            },
+            profile: {
+              id: s.id,
+              userId: s.userId || s.user?.id || s.id,
+              ownerId: s.ownerId || user.id,
+              staffType: s.staffType || (s.role === 'manager' ? 'manager' : 'cook'),
+              salary: s.salary || 0,
+              joinDate: s.joinDate || s.createdAt?.slice(0, 10) || new Date().toISOString().slice(0, 10),
+              shift: s.shift || 'Flexible',
+              permissions: s.permissions || {
+                canEditRent: false,
+                canAddExpense: false,
+                canOnboardStudent: false,
+                canBroadcast: false,
+                canCollectCash: false,
+              },
+              createdAt: s.createdAt || new Date().toISOString(),
+              updatedAt: s.updatedAt || new Date().toISOString(),
+            }
+          }));
+          setStaff(mapped as any);
+        } else {
+          setStaff(teamApi.listByOwner(user.id));
+        }
 
-    setLoading(false);
+        if (Array.isArray(backendAtt)) {
+          setAttendance(backendAtt.map((a: any) => ({
+            id: a.id,
+            propertyId: a.propertyId,
+            staffUserId: a.staffUserId || a.staffId || a.id,
+            date: a.date || dateStr,
+            status: 'present',
+            markedAt: a.createdAt || new Date().toISOString(),
+            createdAt: a.createdAt || new Date().toISOString(),
+            updatedAt: a.updatedAt || new Date().toISOString(),
+            createdBy: a.createdBy || '',
+            updatedBy: a.updatedBy || '',
+            isDeleted: false
+          })));
+        } else {
+          setAttendance(attendanceApi.getAttendanceByOwner(user.id, dateStr));
+        }
+      })
+      .catch(() => {
+        setStaff(teamApi.listByOwner(user.id));
+        setAttendance(attendanceApi.getAttendanceByOwner(user.id, dateStr));
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   }, [user?.id, properties, dateStr]);
 
   // Reset page when property changes

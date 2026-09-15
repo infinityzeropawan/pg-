@@ -35,9 +35,44 @@ export function OwnerStudentsMain() {
     if (!user) return;
     setLoading(true);
     
-    const data = studentsApi.listByOwner(user.id);
-    setStudents(data);
-    setLoading(false);
+    studentsApi.fetchTenants()
+      .then((backendTenants) => {
+        if (Array.isArray(backendTenants) && backendTenants.length > 0) {
+          const mapped = backendTenants.map((t: any) => ({
+            user: {
+              id: t.userId || t.user?.id || t.id,
+              name: t.name || t.user?.name || 'Resident',
+              phone: t.phone || t.user?.phone || 'N/A',
+              email: t.email || t.user?.email || 'N/A',
+            },
+            profile: {
+              id: t.id,
+              propertyId: t.propertyId,
+              status: t.status || 'active',
+              duesAmount: t.duesAmount || 0,
+              rentAmount: t.rentAmount || 8000,
+              depositAmount: t.depositAmount || 10000,
+              bedId: t.bedId || null,
+              roomId: t.roomId || null,
+              pgScore: t.pgScore || 75,
+              moveInDate: t.moveInDate || t.createdAt?.slice(0, 10) || null,
+              userId: t.userId || t.user?.id || t.id,
+              walletBalance: t.walletBalance || 0,
+              createdAt: t.createdAt || new Date().toISOString(),
+              updatedAt: t.updatedAt || new Date().toISOString(),
+            }
+          }));
+          setStudents(mapped as any);
+        } else {
+          setStudents(studentsApi.listByOwner(user.id));
+        }
+      })
+      .catch(() => {
+        setStudents(studentsApi.listByOwner(user.id));
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   }, [user?.id]);
 
   const filteredStudents = students.filter(t => {
