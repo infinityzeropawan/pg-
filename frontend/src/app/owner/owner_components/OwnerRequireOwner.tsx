@@ -27,7 +27,7 @@ export function OwnerRequireOwner({ children }: { children: React.ReactNode }) {
     }
 
     if (isLoginPage) {
-      router.replace(session.mustChangePassword ? '/owner/first-login' : '/owner/dashboard');
+      setAuthorized(true);
       return;
     }
 

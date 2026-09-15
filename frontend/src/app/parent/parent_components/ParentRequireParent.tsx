@@ -25,7 +25,7 @@ export function ParentRequireParent({ children }: { children: React.ReactNode })
     }
 
     if (isLoginPage) {
-      router.replace(session.mustChangePassword ? '/parent/first-login' : '/parent/dashboard');
+      setAuthorized(true);
       return;
     }
     

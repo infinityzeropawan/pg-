@@ -19,9 +19,16 @@ export const authApi = {
         }),
       });
 
-      const resData = await response.json();
+      const responseText = await response.text();
+      let resData: any = {};
+      try {
+        resData = JSON.parse(responseText);
+      } catch {
+        throw new Error(responseText.substring(0, 150) || 'Server returned invalid response');
+      }
+
       if (!response.ok || !resData.success) {
-        throw new Error(resData.message || 'Authentication failed');
+        throw new Error(resData.message || resData.error?.message || 'Authentication failed');
       }
 
       const rawUser = resData.data.user;

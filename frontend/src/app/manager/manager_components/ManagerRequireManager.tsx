@@ -21,7 +21,7 @@ export function ManagerRequireManager({ children }: { children: React.ReactNode 
       return;
     }
     if (isLoginPage) {
-      router.replace(session.mustChangePassword ? '/manager/first-login' : '/manager/dashboard');
+      setAuthorized(true);
       return;
     }
     if (session.mustChangePassword && !pathname?.includes('/manager/first-login')) {

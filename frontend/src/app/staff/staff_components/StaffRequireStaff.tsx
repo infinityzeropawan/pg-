@@ -25,7 +25,7 @@ export function StaffRequireStaff({ children }: { children: React.ReactNode }) {
     }
 
     if (isLoginPage) {
-      router.replace(session.mustChangePassword ? '/staff/first-login' : '/staff/dashboard');
+      setAuthorized(true);
       return;
     }
     

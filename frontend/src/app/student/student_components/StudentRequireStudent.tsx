@@ -25,7 +25,7 @@ export function StudentRequireStudent({ children }: { children: React.ReactNode 
     }
 
     if (isLoginPage) {
-      router.replace(session.mustChangePassword ? '/student/first-login' : '/student/dashboard');
+      setAuthorized(true);
       return;
     }
     
