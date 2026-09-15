@@ -33,3 +33,19 @@ export const authorizeRoles = (...roles: string[]) => {
     next();
   };
 };
+
+/**
+ * Blocks all write operations (POST, PUT, PATCH, DELETE) for demo accounts.
+ * Apply after `authenticateJwt` on any route that mutates data.
+ * GET requests pass through freely so dashboards remain fully readable.
+ */
+export const blockDemoWrites = (req: AuthRequest, res: Response, next: NextFunction) => {
+  if (req.user?.isDemo && req.method !== 'GET') {
+    return sendError(
+      res,
+      '👀 Demo account — this action is view-only. Sign up for a real account to make changes.',
+      403,
+    );
+  }
+  next();
+};

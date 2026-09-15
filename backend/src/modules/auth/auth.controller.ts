@@ -69,6 +69,7 @@ export const login = async (req: Request, res: Response) => {
       role: user.role,
       ownerId: scope.ownerId,
       email: user.email,
+      isDemo: user.isDemo,
     };
 
     const accessToken = generateAccessToken(tokenPayload);
@@ -108,6 +109,7 @@ export const login = async (req: Request, res: Response) => {
         propertyId: scope.propertyId,
         assignedPropertyIds: scope.assignedPropertyIds,
         mustChangePassword: user.mustChangePassword,
+        isDemo: user.isDemo,
       },
       accessToken,
       refreshToken,

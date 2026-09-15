@@ -13,6 +13,8 @@ export interface SessionUser {
   linkedStudentId?: string;
   mustChangePassword?: boolean;
   assignedPropertyIds?: string[];
+  /** True when the account is a read-only demo account. */
+  isDemo?: boolean;
 }
 
 export interface User extends BaseEntity {

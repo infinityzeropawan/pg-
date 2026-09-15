@@ -153,6 +153,7 @@ model User {
   role                  UserRole
   isActive              Boolean       @default(true)
   isSuspended           Boolean       @default(false)
+  isDemo                Boolean       @default(false)
   mustChangePassword    Boolean       @default(true)
   avatarUrl             String?
   

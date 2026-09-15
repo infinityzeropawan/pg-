@@ -11,6 +11,7 @@ import staffRoutes from './modules/staff/staff.routes';
 import studentRoutes from './modules/student/student.routes';
 import { ENV } from './config/env';
 import { sendSuccess, sendError } from './utils/response';
+import { authenticateJwt, blockDemoWrites } from './middleware/auth.middleware';
 
 const app = express();
 
@@ -67,6 +68,15 @@ app.get('/health', (req: Request, res: Response) => {
 });
 
 // ── API v1 Routes ──────────────────────────────────────────────
+// Global demo guard: any authenticated write request from a demo account is
+// rejected here before reaching any route handler.
+app.use('/api/v1', (req, res, next) => {
+  // Skip the guard for login (unauthenticated) and GET requests
+  if (req.method === 'GET' || req.path.startsWith('/auth/login')) return next();
+  // Authenticate, then check demo flag
+  authenticateJwt(req as any, res, () => blockDemoWrites(req as any, res, next));
+});
+
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/superadmin', superadminRoutes);
 app.use('/api/v1/admin', adminRoutes);

@@ -15,6 +15,7 @@ import { useManagerPropertyContext } from '@/app/manager/manager_components/Mana
 import { useManagerI18n } from '@/app/manager/ManagerI18n';
 import { ManagerForcePasswordChangeModal } from '@/app/manager/manager_components/ManagerForcePasswordChangeModal';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
+import { DemoBanner } from '@/components/ui/DemoBanner';
 
 import type { DictKey } from '@/app/manager/ManagerI18n';
 import '../manager-theme.css';
@@ -127,6 +128,7 @@ export function ManagerLayout({ children }: { children: React.ReactNode }) {
       </aside>
       {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0">
+        <DemoBanner user={user} />
         {/* Desktop Header - gradient matching homepage */}
         <header
           className="hidden md:flex h-16 items-center px-6 justify-between shrink-0 sticky top-0 z-20 shadow-md"

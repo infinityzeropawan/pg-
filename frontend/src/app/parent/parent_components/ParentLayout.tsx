@@ -8,6 +8,7 @@ import { Home, IndianRupee, Bell, LogOut, User, Menu, X, ShieldCheck } from 'luc
 
 import { getSession, clearSession } from '@/app/parent/parent_lib/parent_auth/ParentSession';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
+import { DemoBanner } from '@/components/ui/DemoBanner';
 
 const NAV_ITEMS = [
   { key: 'dashboard', label: 'Dashboard', href: '/parent/dashboard', icon: Home },
@@ -96,8 +97,9 @@ function ParentLayoutInner({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      {/* Main Content */}
+      {/* Desktop Main Header & Content */}
       <main className="flex-1 flex flex-col min-w-0">
+        <DemoBanner user={user} />
         <header className="hidden md:flex h-16 bg-header border-b border-border items-center px-6 justify-between shrink-0 sticky top-0 z-20 backdrop-blur-md bg-opacity-80">
           <h2 className="text-lg font-semibold text-primary capitalize">
             {pathname?.split('/')[2]?.replace('-', ' ') || 'Dashboard'}

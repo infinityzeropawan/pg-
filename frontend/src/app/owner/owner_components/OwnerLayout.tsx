@@ -19,6 +19,7 @@ import { useOwnerI18n } from '@/app/owner/OwnerI18n';
 ;
 import { OwnerForcePasswordChangeModal } from '@/app/owner/owner_components/OwnerForcePasswordChangeModal';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
+import { DemoBanner } from '@/components/ui/DemoBanner';
 
 import type { DictKey } from '@/app/owner/OwnerI18n';
 
@@ -147,6 +148,7 @@ export function OwnerLayout({ children }: { children: React.ReactNode }) {
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0">
+        <DemoBanner user={user} />
         {/* Desktop Header - gradient matching homepage */}
         <header
           className="hidden md:flex h-16 items-center px-6 justify-between shrink-0 sticky top-0 z-20 shadow-md"

@@ -6,6 +6,8 @@ export interface TokenPayload {
   role: string;
   ownerId?: string | null;
   email: string;
+  /** Read-only demo account flag embedded in the JWT. */
+  isDemo?: boolean;
 }
 
 export const generateAccessToken = (payload: TokenPayload): string => {

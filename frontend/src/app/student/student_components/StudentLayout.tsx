@@ -10,6 +10,7 @@ import { getSession, clearSession } from '@/app/student/student_lib/student_auth
 import { StudentProvider, useStudentContext } from '@/app/student/student_components/StudentContext';
 import { useStudentI18n } from '@/app/student/StudentI18n';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
+import { DemoBanner } from '@/components/ui/DemoBanner';
 import '../student-theme.css';
 
 import type { DictKey } from '@/app/student/StudentI18n';
@@ -86,7 +87,9 @@ function StudentLayoutInner({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="student-theme min-h-screen bg-page flex flex-col md:flex-row">
+    <>
+      <DemoBanner isDemo={user?.isDemo} />
+      <div className="student-theme min-h-screen bg-page flex flex-col md:flex-row">
       {/* Mobile Header */}
       <div className="md:hidden flex items-center justify-between bg-header/90 backdrop-blur-md p-3 border-b border-border shrink-0 sticky top-0 z-50">
         <div className="flex items-center gap-2">
@@ -223,6 +226,7 @@ function StudentLayoutInner({ children }: { children: React.ReactNode }) {
         <ShieldAlert className="w-6 h-6 group-hover:animate-pulse" />
       </Link>
     </div>
+    </>
   );
 }
 

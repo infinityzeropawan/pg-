@@ -1,8 +1,8 @@
 // RESPONSIBILITY: Renders the OwnerLoginMain component.
 'use client';
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { Shield, Eye, EyeOff } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Shield, Eye, EyeOff, Sparkles } from 'lucide-react';
 import Link from 'next/link';
 
 import { authApi as api } from '@/app/owner/owner_lib/owner_api/OwnerAuth';
@@ -12,11 +12,21 @@ import { ThemeToggle } from '@/components/ui/ThemeToggle';
 
 export function OwnerLoginMain() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const isDemo = searchParams.get('demo') === '1';
+    const emailParam = searchParams.get('email');
+    if (isDemo || emailParam) {
+      setEmail(emailParam || 'demo.owner@smartpg.com');
+      setPassword('Demo@123');
+    }
+  }, [searchParams]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -105,6 +115,22 @@ export function OwnerLoginMain() {
               {loading ? 'Signing in...' : 'Sign In Securely'}
             </button>
           </form>
+
+          <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-center justify-between">
+            <div className="text-xs text-amber-800">
+              <span className="font-bold">Trying the demo?</span> Use demo owner credentials.
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setEmail('demo.owner@smartpg.com');
+                setPassword('Demo@123');
+              }}
+              className="px-2.5 py-1 text-xs font-bold bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors shrink-0 flex items-center gap-1 shadow-sm"
+            >
+              <Sparkles className="w-3 h-3" /> Auto-Fill Demo
+            </button>
+          </div>
 
           <div className="mt-6 text-center text-xs text-[var(--text-light)] space-y-2">
             <div>Looking for interactive demo? <Link href="/demo" className="text-[var(--primary-teal)] font-semibold hover:underline">Open Demo Sandbox</Link></div>

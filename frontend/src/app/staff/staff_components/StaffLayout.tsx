@@ -13,6 +13,7 @@ import { useStaffI18n } from '@/app/staff/StaffI18n';
 ;
 import { StaffForcePasswordChangeModal } from '@/app/staff/staff_components/StaffForcePasswordChangeModal';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
+import { DemoBanner } from '@/components/ui/DemoBanner';
 
 import type { DictKey } from '@/app/staff/StaffI18n';
 
@@ -122,6 +123,7 @@ function StaffLayoutInner({ children }: { children: React.ReactNode }) {
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0">
+        <DemoBanner user={user} />
         <header className="hidden md:flex h-16 bg-header border-b border-border items-center px-6 justify-between shrink-0 sticky top-0 z-20 backdrop-blur-md bg-opacity-80">
           <div className="flex flex-col">
             <h2 className="text-lg font-semibold text-primary capitalize leading-tight">
