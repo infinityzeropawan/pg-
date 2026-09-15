@@ -27,7 +27,7 @@ app.use(
       if (!ENV.IS_PRODUCTION || ENV.CORS_ORIGINS.length === 0) return callback(null, true);
       if (!origin) return callback(null, true); // non-browser clients (curl, mobile)
       if (ENV.CORS_ORIGINS.includes(origin)) return callback(null, true);
-      return callback(new Error(`Origin ${origin} is not allowed by CORS`));
+      return callback(null, false);
     },
     credentials: true,
   })
@@ -60,19 +60,30 @@ app.use('/api/v1/auth/login', authLimiter);
 app.use('/api/v1', apiLimiter);
 
 // ── Health Check ───────────────────────────────────────────────
-app.get('/health', (req: Request, res: Response) => {
+const healthHandler = (req: Request, res: Response) => {
   return sendSuccess(res, 'Smart PG Management Backend API is healthy', {
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
   });
-});
+};
+app.get('/health', healthHandler);
+app.get('/api/v1/health', healthHandler);
 
 // ── API v1 Routes ──────────────────────────────────────────────
 // Global demo guard: any authenticated write request from a demo account is
 // rejected here before reaching any route handler.
 app.use('/api/v1', (req, res, next) => {
-  // Skip the guard for login (unauthenticated) and GET requests
-  if (req.method === 'GET' || req.path.startsWith('/auth/login')) return next();
+  // Public unauthenticated routes list
+  const isPublicAuthRoute = req.path.startsWith('/auth/login') || 
+                            req.path.startsWith('/auth/register') || 
+                            req.path.startsWith('/auth/forgot-password') || 
+                            req.path.startsWith('/auth/reset-password') ||
+                            req.path.startsWith('/enquiries') ||
+                            req.path.startsWith('/health');
+
+  // Skip the guard for GET requests and public unauthenticated routes
+  if (req.method === 'GET' || isPublicAuthRoute) return next();
+
   // Authenticate, then check demo flag
   authenticateJwt(req as any, res, () => blockDemoWrites(req as any, res, next));
 });
