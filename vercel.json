@@ -1,8 +1,35 @@
 {
+  "services": {
+    "frontend": {
+      "root": "frontend",
+      "framework": "nextjs"
+    },
+    "backend": {
+      "root": "backend",
+      "entrypoint": "src/index.ts"
+    }
+  },
   "rewrites": [
     {
-      "source": "/api/v1/(.*)",
-      "destination": "/api/index"
+      "source": "/api/v1(/.*)?",
+      "destination": {
+        "type": "service",
+        "service": "backend"
+      }
+    },
+    {
+      "source": "/api/backend(/.*)?",
+      "destination": {
+        "type": "service",
+        "service": "backend"
+      }
+    },
+    {
+      "source": "/(.*)",
+      "destination": {
+        "type": "service",
+        "service": "frontend"
+      }
     }
   ]
 }
