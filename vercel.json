@@ -1,4 +1,12 @@
 {
+  "functions": {
+    "api/*.ts": {
+      "includeFiles": "node_modules/**"
+    },
+    "backend/src/index.ts": {
+      "includeFiles": "node_modules/**"
+    }
+  },
   "services": {
     "frontend": {
       "root": "frontend",
