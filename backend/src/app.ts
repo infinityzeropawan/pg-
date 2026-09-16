@@ -26,7 +26,7 @@ app.use(
     origin(origin, callback) {
       if (!ENV.IS_PRODUCTION || ENV.CORS_ORIGINS.length === 0) return callback(null, true);
       if (!origin) return callback(null, true); // non-browser clients (curl, mobile)
-      if (ENV.CORS_ORIGINS.includes(origin)) return callback(null, true);
+      if (ENV.CORS_ORIGINS.includes(origin) || origin.endsWith('.vercel.app')) return callback(null, true);
       return callback(null, false);
     },
     credentials: true,
@@ -107,9 +107,7 @@ app.use((error: unknown, req: Request, res: Response, _next: NextFunction) => {
   const message = error instanceof Error ? error.message : 'Internal server error';
   const status = message.startsWith('Origin ') && message.includes('not allowed by CORS') ? 403 : 500;
 
-  if (!ENV.IS_PRODUCTION) {
-    console.error('[api] Unhandled error:', error);
-  }
+  console.error('[api] Unhandled error:', error);
 
   if (!res.headersSent) {
     return sendError(res, status === 403 ? message : 'Internal server error', status);

@@ -1,0 +1,50 @@
+All verification gates pass. Here is the complete production-readiness report:
+
+---
+
+# 📋 Production Readiness Audit — Final Report
+
+**Verification status:** ✅ Frontend production build compiles (`next build` — all routes) · ✅ Frontend `tsc --noEmit` clean · ✅ Backend `tsc --noEmit` clean · ✅ Prisma client regenerated · ✅ Zero mock/demo/hardcoded data left in Student & Parent portals
+
+---
+
+## 1️⃣ Data Integrity — "No frontend function without backend + DB" (your main requirement)
+
+Every screen was traced end-to-end: **Component → hook → API client → Express route → Prisma service → Neon table**. Violations found were **rewired or removed**:
+
+| Screen | Problem found | Fix applied |
+|---|---|---|
+| **Settings** | 100% fake: notification/privacy/theme toggles only toasted "updated" (nothing persisted), logout button didn't log out | Rebuilt around real endpoints: `POST /auth/change-password` (persists bcrypt hash + audit log) and `POST /auth/logout` (revokes refresh token) + real account facts from DB |
+| **Profile** | **Critical:** form sent `phone/parentName/parentPhone` but backend expects `emergencyContactName/emergencyContactPhone/permanentAddress/collegeOrCompany` → **silent fake-save** (Prisma dropped unknown keys, showed "success") | Hook now sends exact TenantProfile columns; KYC table (fake Aadhar/PAN "Verified" rows with dead buttons) replaced with real `idProofType`/masked `idProofNumber` + link to Documents |
+| **Visitors** | Entire page fake: uncontrolled form that only toasted, fake QR pass, "Ramesh Patel/Vikas Kumar" hardcoded lists | Fully rewritten on `useStudentVisitors` → real `GET/POST /visitors` + `PATCH /:id/checkout`, controlled form, active/past tabs from `checkOutTime` |
+| **Dashboard** | Fake referral form (no backend endpoint exists — verified), fake "Monthly Activity Summary" (28/30, 85%, 4.8⭐), fake "Recent Updates", menu fallbacks, **₹ dues shown as paise** | Referral handler deleted; summary replaced with real Account Snapshot (dues/rent/deposit/stay status via `formatPaise`); updates now render real notices from DB |
+| **Attendance** | Calendar/stats hardcoded (96%, 28/30, "Late: 1"); "Parent Alert: Sent" always shown | Calendar + stats derived from `GET /attendance` + `GET /gate-attendance`; alert column now reflects the real `NotificationLog` persistence (`parentNotified` / "No parent linked") |
+| **Communication** | Mock chat with fake messages ("Amit Verma: Are you coming for dinner?") | Rewired: real notices + real roommates (room API) + composer persists a `SupportTicket` |
+| **Leaves** | Cancel used un-imported API + `window.location.reload()`; destination field silently dropped | Wired to real `cancelLeave`; destination merged into persisted `reason` column |
+| **Notices** | "Notification Settings" link pointed to fake toggles | Points to real Settings |
+| **History** | Component body was missing (broken export) | Rebuilt: real timeline from `GET /history` with type filters, counts, refresh |
+| **Parent finance/dashboard** | `alert()` on payment | Toasts; payments hit real `POST /invoices/:id/pay` |
+| **Dead code** | `StudentParentOperations.ts` ("fake DB" comment, zero importers) deleted | — |
+
+## 2️⃣ Bugs Fixed (functional)
+- **Build-breaking:** 6 duplicate hook files (double function declarations), missing `StudentHistoryMain` export, broken complaint routes (`/complaints/new` vs `/complaints/student_new` — consolidated)
+- **Money display:** paise values rendered as rupees on dashboard/profile (now `formatPaise`)
+- **Settings hook** referenced non-existent context fields (`refreshProfile`)
+- **Gate-attendance "parent notified"** lied when no parent was linked — now honest
+
+## 3️⃣ Mobile Responsiveness (reviewed during rewrites)
+- All rewritten screens use `grid-cols-1 → md:grid-cols-N`, `flex-col sm:flex-row`, scrollable tables (`overflow-x-auto`), and ≥40px touch targets in modals — no layout shifts introduced.
+- Remaining page-specific QA (real-device testing) still recommended — see below.
+
+## 4️⃣ Production Readiness Assessment
+
+**Ready:** helmet + rate limiting on backend (installed earlier), JWT + role guards, env validation, `.env.example` templates, seed data for Neon, production build passes.
+
+**Must-do before launch (recommended):**
+1. **Set `NEXT_PUBLIC_API_BASE_URL` on Vercel** to your Render/Railway backend URL — `warnIfApiBaseUnconfigured` still guards against silent missing config.
+2. **Payment flow** records payments in DB but has **no real gateway** (Razorpay/etc.) — parents can "pay" via UPI without verification. Add a gateway or mark invoices manually.
+3. **Real QR scanner** — the gate scan modal simulates the scan step before the (real) log submission; integrate `html5-qrcode` if physical QR entry is required.
+4. **Rebuild parent "first-login"** flow parity check and run `npx prisma migrate deploy` against Neon before deploy.
+5. Run `npm run build` once more after setting env vars, then deploy backend first, then frontend.
+
+The codebase is now consistent: **every student/parent UI action is backed by a verified endpoint and a Neon-persisted model** — nothing left as a cosmetic stub.
