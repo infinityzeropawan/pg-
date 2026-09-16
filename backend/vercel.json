@@ -1,28 +1,13 @@
 {
   "version": 2,
-  "builds": [
+  "rewrites": [
     {
-      "src": "src/index.ts",
-      "use": "@vercel/node",
-      "config": {
-        "includeFiles": [
-          "node_modules/express/**",
-          "node_modules/@prisma/client/**",
-          "node_modules/.prisma/client/**",
-          "node_modules/cors/**",
-          "node_modules/helmet/**",
-          "node_modules/bcryptjs/**",
-          "node_modules/jsonwebtoken/**",
-          "node_modules/express-rate-limit/**",
-          "node_modules/dotenv/**"
-        ]
-      }
-    }
-  ],
-  "routes": [
+      "source": "/api/v1/(.*)",
+      "destination": "/src/index.ts"
+    },
     {
-      "src": "/(.*)",
-      "dest": "src/index.ts"
+      "source": "/(.*)",
+      "destination": "/src/index.ts"
     }
   ]
 }
