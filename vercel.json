@@ -1,12 +1,4 @@
 {
-  "functions": {
-    "api/*.ts": {
-      "includeFiles": "node_modules/{express,@prisma/client,.prisma/client,cors,helmet,bcryptjs,jsonwebtoken,express-rate-limit,dotenv}/**"
-    },
-    "backend/src/index.ts": {
-      "includeFiles": "node_modules/{express,@prisma/client,.prisma/client,cors,helmet,bcryptjs,jsonwebtoken,express-rate-limit,dotenv}/**"
-    }
-  },
   "services": {
     "frontend": {
       "root": "frontend",
