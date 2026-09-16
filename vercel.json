@@ -1,10 +1,30 @@
 {
   "functions": {
     "api/*.ts": {
-      "includeFiles": "node_modules/**"
+      "includeFiles": [
+        "node_modules/express/**",
+        "node_modules/@prisma/client/**",
+        "node_modules/.prisma/client/**",
+        "node_modules/cors/**",
+        "node_modules/helmet/**",
+        "node_modules/bcryptjs/**",
+        "node_modules/jsonwebtoken/**",
+        "node_modules/express-rate-limit/**",
+        "node_modules/dotenv/**"
+      ]
     },
     "backend/src/index.ts": {
-      "includeFiles": "node_modules/**"
+      "includeFiles": [
+        "node_modules/express/**",
+        "node_modules/@prisma/client/**",
+        "node_modules/.prisma/client/**",
+        "node_modules/cors/**",
+        "node_modules/helmet/**",
+        "node_modules/bcryptjs/**",
+        "node_modules/jsonwebtoken/**",
+        "node_modules/express-rate-limit/**",
+        "node_modules/dotenv/**"
+      ]
     }
   },
   "services": {
