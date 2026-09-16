@@ -21,6 +21,6 @@
     "typescript": "^5.8.2"
   },
   "scripts": {
-    "postinstall": "cd backend && npx prisma generate"
+    "postinstall": "npm --prefix backend run prisma:generate"
   }
 }
