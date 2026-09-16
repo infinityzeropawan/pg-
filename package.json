@@ -14,13 +14,13 @@
     "express": "^4.21.2",
     "express-rate-limit": "^8.7.0",
     "helmet": "^8.3.0",
-    "jsonwebtoken": "^9.0.2"
+    "jsonwebtoken": "^9.0.2",
+    "prisma": "^6.4.1"
   },
   "devDependencies": {
-    "prisma": "^6.4.1",
     "typescript": "^5.8.2"
   },
   "scripts": {
-    "postinstall": "npm --prefix backend run prisma:generate"
+    "postinstall": "cd backend && prisma generate"
   }
 }
