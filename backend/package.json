@@ -12,6 +12,7 @@
     "prisma:db-push": "prisma db push",
     "seed": "ts-node src/seed.ts",
     "seed:features": "ts-node src/seed-features.ts",
+    "seed:rich": "ts-node src/seed-rich-data.ts",
     "reset:seed": "npx tsx src/reset_and_seed.ts"
   },
   "dependencies": {
