@@ -11,13 +11,14 @@ async function getUserScope(user: { id: string; role: string; ownerId: string | 
   let resolvedOwnerId: string | null = user.ownerId || user.id;
 
   if (user.role === 'OWNER') {
+    const effectiveOwnerId = user.ownerId || user.id;
     const props = await prisma.property.findMany({
-      where: { ownerId: user.id },
+      where: { ownerId: effectiveOwnerId },
       select: { id: true },
     });
     assignedPropertyIds = props.map(p => p.id);
     propertyId = assignedPropertyIds[0] || null;
-    resolvedOwnerId = user.id;
+    resolvedOwnerId = effectiveOwnerId;
   } else if (user.role === 'MANAGER' || user.role === 'STAFF') {
     const assignments = await prisma.staffAssignment.findMany({
       where: { userId: user.id },
