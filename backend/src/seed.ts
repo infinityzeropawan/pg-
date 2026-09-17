@@ -613,7 +613,7 @@ async function main() {
           passwordHash: demoPassHash,
           role: d.role,
           mustChangePassword: false,
-          isDemo: true,
+          isDemo: false,
           isActive: true,
           isSuspended: false,
         },

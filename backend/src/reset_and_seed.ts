@@ -193,25 +193,25 @@ async function seed() {
   ]});
   console.log('✅ Seeded 2 sample owner requests');
 
-  // ── DEMO ACCOUNTS (isDemo: true — all writes blocked by backend) ──────────
-  // Demo Owner (can log into owner portal, read-only)
-  const demoOwner = await prisma.user.create({ data:{email:'demo.owner@smartpg.com',phone:'9800000001',fullName:'Demo PG Owner',passwordHash:await bcrypt.hash('Demo@123',10),role:UserRole.OWNER,mustChangePassword:false,isDemo:true}});
+  // ── DEMO ACCOUNTS (Real testing accounts with full write access) ──────────
+  // Demo Owner (can log into owner portal, full access)
+  const demoOwner = await prisma.user.create({ data:{email:'demo.owner@smartpg.com',phone:'9800000001',fullName:'Demo PG Owner',passwordHash:await bcrypt.hash('Demo@123',10),role:UserRole.OWNER,mustChangePassword:false,isDemo:false}});
   await prisma.user.update({ where:{id:demoOwner.id},data:{ownerId:ownerUser.id}});
 
   // Demo Manager
-  const demoManager = await prisma.user.create({ data:{ownerId:ownerUser.id,email:'demo.manager@smartpg.com',phone:'9800000002',fullName:'Demo Branch Manager',passwordHash:await bcrypt.hash('Demo@123',10),role:UserRole.MANAGER,mustChangePassword:false,isDemo:true}});
+  const demoManager = await prisma.user.create({ data:{ownerId:ownerUser.id,email:'demo.manager@smartpg.com',phone:'9800000002',fullName:'Demo Branch Manager',passwordHash:await bcrypt.hash('Demo@123',10),role:UserRole.MANAGER,mustChangePassword:false,isDemo:false}});
   await prisma.staffAssignment.create({ data:{userId:demoManager.id,propertyId:property.id,permissions:JSON.stringify(['all'])}});
 
   // Demo Cook/Staff
-  const demoStaff = await prisma.user.create({ data:{ownerId:ownerUser.id,email:'demo.cook@smartpg.com',phone:'9800000003',fullName:'Demo Cook Staff',passwordHash:await bcrypt.hash('Demo@123',10),role:UserRole.STAFF,mustChangePassword:false,isDemo:true}});
+  const demoStaff = await prisma.user.create({ data:{ownerId:ownerUser.id,email:'demo.cook@smartpg.com',phone:'9800000003',fullName:'Demo Cook Staff',passwordHash:await bcrypt.hash('Demo@123',10),role:UserRole.STAFF,mustChangePassword:false,isDemo:false}});
   await prisma.staffAssignment.create({ data:{userId:demoStaff.id,propertyId:property.id,permissions:JSON.stringify(['mess'])}});
 
   // Demo Parent
-  const demoParentUser = await prisma.user.create({ data:{ownerId:ownerUser.id,email:'demo.parent@smartpg.com',phone:'9800000005',fullName:'Demo Parent Guardian',passwordHash:await bcrypt.hash('Demo@123',10),role:UserRole.PARENT,mustChangePassword:false,isDemo:true}});
+  const demoParentUser = await prisma.user.create({ data:{ownerId:ownerUser.id,email:'demo.parent@smartpg.com',phone:'9800000005',fullName:'Demo Parent Guardian',passwordHash:await bcrypt.hash('Demo@123',10),role:UserRole.PARENT,mustChangePassword:false,isDemo:false}});
   const demoParentProfile = await prisma.parentProfile.create({ data:{userId:demoParentUser.id,relation:'Father',address:'Demo Address, Demo City'}});
 
   // Demo Student (linked to demo parent, given a bed + invoices + gate logs)
-  const demoStudentUser = await prisma.user.create({ data:{ownerId:ownerUser.id,email:'demo.student@smartpg.com',phone:'9800000004',fullName:'Demo Student Resident',passwordHash:await bcrypt.hash('Demo@123',10),role:UserRole.STUDENT,mustChangePassword:false,isDemo:true}});
+  const demoStudentUser = await prisma.user.create({ data:{ownerId:ownerUser.id,email:'demo.student@smartpg.com',phone:'9800000004',fullName:'Demo Student Resident',passwordHash:await bcrypt.hash('Demo@123',10),role:UserRole.STUDENT,mustChangePassword:false,isDemo:false}});
   const demoTenantProfile = await prisma.tenantProfile.create({ data:{userId:demoStudentUser.id,emergencyContactName:'Demo Parent',emergencyContactPhone:'9800000005',permanentAddress:'Demo Address, Demo City',idProofType:'AADHAAR',idProofNumber:'DEMO-0000-0000',collegeOrCompany:'Demo University, B.Tech CSE',parentProfileId:demoParentProfile.id}});
 
   const demoBed = allBeds[3]; // 4th bed — real students got 0,1,2

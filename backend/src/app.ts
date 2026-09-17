@@ -12,7 +12,6 @@ import studentRoutes from './modules/student/student.routes';
 import featureRoutes from './modules/features/features.routes';
 import { ENV } from './config/env';
 import { sendSuccess, sendError } from './utils/response';
-import { authenticateJwt, blockDemoWrites } from './middleware/auth.middleware';
 
 const app = express();
 
@@ -71,23 +70,6 @@ app.get('/health', healthHandler);
 app.get('/api/v1/health', healthHandler);
 
 // ── API v1 Routes ──────────────────────────────────────────────
-// Global demo guard: any authenticated write request from a demo account is
-// rejected here before reaching any route handler.
-app.use('/api/v1', (req, res, next) => {
-  // Public unauthenticated routes list
-  const isPublicAuthRoute = req.path.startsWith('/auth/login') || 
-                            req.path.startsWith('/auth/register') || 
-                            req.path.startsWith('/auth/forgot-password') || 
-                            req.path.startsWith('/auth/reset-password') ||
-                            req.path.startsWith('/enquiries') ||
-                            req.path.startsWith('/health');
-
-  // Skip the guard for GET requests and public unauthenticated routes
-  if (req.method === 'GET' || isPublicAuthRoute) return next();
-
-  // Authenticate, then check demo flag
-  authenticateJwt(req as any, res, () => blockDemoWrites(req as any, res, next));
-});
 
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/superadmin', superadminRoutes);
