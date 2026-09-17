@@ -7,6 +7,10 @@ import type { BaseEntity } from '@/lib/types';
 
 export type RoomStatus = 'available' | 'full' | 'maintenance';
 
+/**
+ * Legacy localStorage shape. Still used by the manager module; new owner code
+ * should read rooms from the backend via `fetchRoomsByProperty` instead.
+ */
 export interface Room extends BaseEntity {
   propertyId: string;
   floor: number;
@@ -17,6 +21,83 @@ export interface Room extends BaseEntity {
   amenities: string[];
   status: RoomStatus;
   photos: string[];
+}
+
+/** Bed as returned by the admin API (`GET /properties/:id/rooms`). */
+export interface BackendBed {
+  id: string;
+  bedNumber: string;
+  status: string;
+  monthlyRent: number;
+}
+
+/** Room as returned by the admin API, with `monthlyRent` stored in Paise. */
+export interface BackendRoom {
+  id: string;
+  roomNumber: string;
+  type: string;
+  monthlyRent: number;
+  floorId: string;
+  floor: {
+    id: string;
+    floorNumber: number;
+    name: string;
+    propertyId: string;
+    property?: { id: string; name: string } | null;
+  };
+  beds: BackendBed[];
+}
+
+/** View model the rooms UI renders. Rent is converted back to Rupees. */
+export interface OwnerRoomView {
+  id: string;
+  propertyId: string;
+  floor: number;
+  number: string;
+  sharing: number;
+  rentPerBed: number;
+  bedsCount: number;
+  vacantCount: number;
+  status: RoomStatus;
+}
+
+const SHARING_BY_ROOM_TYPE: Record<string, number> = {
+  SINGLE: 1,
+  DOUBLE_SHARING: 2,
+  TRIPLE_SHARING: 3,
+  FOUR_SHARING: 4,
+};
+
+/**
+ * Maps an API room onto the table/KPI view model.
+ * Sharing comes from the real bed rows (falling back to the enum) so a room
+ * always reports the beds that actually exist in the database.
+ * Status is derived because `Room` has no status column:
+ * every bed under maintenance -> 'maintenance', no vacant bed -> 'full'.
+ */
+export function mapRoomFromBackend(room: BackendRoom): OwnerRoomView {
+  const beds = Array.isArray(room.beds) ? room.beds : [];
+  const vacantCount = beds.filter(bed => bed.status === 'VACANT').length;
+  const sharing = beds.length || SHARING_BY_ROOM_TYPE[room.type] || 1;
+
+  let status: RoomStatus = 'available';
+  if (beds.length > 0 && beds.every(bed => bed.status === 'UNDER_MAINTENANCE')) {
+    status = 'maintenance';
+  } else if (beds.length > 0 && vacantCount === 0) {
+    status = 'full';
+  }
+
+  return {
+    id: room.id,
+    propertyId: room.floor?.propertyId || room.floor?.property?.id || '',
+    floor: room.floor?.floorNumber ?? 1,
+    number: room.roomNumber || '',
+    sharing,
+    rentPerBed: Math.round((room.monthlyRent || 0) / 100),
+    bedsCount: beds.length,
+    vacantCount,
+    status,
+  };
 }
 
 export const roomsApi = {
@@ -116,22 +197,66 @@ export const roomsApi = {
     } as unknown);
   },
 
-  // Backend API async methods
-  fetchRoomsByProperty: async (propertyId: string) => {
-    try {
-      const { adminRequest } = await import('@/app/owner/owner_lib/owner_api/AdminClient');
-      const data = await adminRequest<any[]>(`/properties/${propertyId}/rooms`);
-      return data;
-    } catch {
-      return roomsApi.listByProperty(propertyId);
-    }
+  // ==========================================
+  // Backend API methods (source of truth for the owner module)
+  // ==========================================
+
+  /**
+   * GET `/properties/:propertyId/rooms`.
+   * Errors propagate so pages can show a real failure instead of silently
+   * swapping in per-browser localStorage rows.
+   */
+  fetchRoomsByProperty: async (propertyId: string): Promise<BackendRoom[]> => {
+    const { adminRequest } = await import('@/app/owner/owner_lib/owner_api/AdminClient');
+    return adminRequest<BackendRoom[]>(`/properties/${propertyId}/rooms`);
   },
 
-  createBackendRoom: async (roomData: { propertyId: string; roomNumber: string; floorNumber: number; sharingType: number; baseRentMonthly: number; depositAmount: number }) => {
+  /** Fetches every selected property's rooms in one batch. */
+  fetchRoomsForProperties: async (propertyIds: string[]): Promise<BackendRoom[]> => {
+    if (propertyIds.length === 0) return [];
+    const perProperty = await Promise.all(
+      propertyIds.map(propertyId => roomsApi.fetchRoomsByProperty(propertyId))
+    );
+    return perProperty.flat();
+  },
+
+  /** GET `/rooms/:id` — used by the room detail page. */
+  fetchRoomById: async (roomId: string): Promise<BackendRoom> => {
     const { adminRequest } = await import('@/app/owner/owner_lib/owner_api/AdminClient');
-    return adminRequest<any>('/rooms', {
+    return adminRequest<BackendRoom>(`/rooms/${roomId}`);
+  },
+
+  /** POST `/rooms` — creates the room and its beds in one backend transaction. */
+  createBackendRoom: async (roomData: {
+    propertyId: string;
+    roomNumber: string;
+    floorNumber: number;
+    bedCount: number;
+    monthlyRent: number;
+  }): Promise<BackendRoom> => {
+    const { adminRequest } = await import('@/app/owner/owner_lib/owner_api/AdminClient');
+    return adminRequest<BackendRoom>('/rooms', {
       method: 'POST',
       body: JSON.stringify(roomData),
+    });
+  },
+
+  /** DELETE `/rooms/:id` — blocked by the API while a bed is occupied. */
+  deleteBackendRoom: async (roomId: string): Promise<{ id: string }> => {
+    const { adminRequest } = await import('@/app/owner/owner_lib/owner_api/AdminClient');
+    return adminRequest<{ id: string }>(`/rooms/${roomId}`, { method: 'DELETE' });
+  },
+
+  /**
+   * PATCH `/rooms/:id/maintenance`.
+   * The API flips every vacant bed to UNDER_MAINTENANCE (or back to VACANT)
+   * in one transaction and leaves occupied/reserved beds alone.
+   */
+  setBackendRoomMaintenance: async (roomId: string, isMaintenance: boolean): Promise<{ id: string; isMaintenance: boolean; updatedBeds: number }> => {
+    const { adminRequest } = await import('@/app/owner/owner_lib/owner_api/AdminClient');
+    return adminRequest<{ id: string; isMaintenance: boolean; updatedBeds: number }>(`/rooms/${roomId}/maintenance`, {
+      method: 'PATCH',
+      body: JSON.stringify({ isMaintenance }),
     });
   }
 };

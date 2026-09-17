@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { authenticateJwt, authorizeRoles } from '../../middleware/auth.middleware';
+import { requireFeature } from '../../middleware/feature.middleware';
 import {
   // Profile & Room
   getStudentProfile,
@@ -58,20 +59,20 @@ router.put('/profile', updateStudentProfile);
 router.get('/room', getStudentRoom);
 
 // ── Finance: Invoices & Payments ──────────────────────────────
-router.get('/invoices', getStudentInvoices);
-router.get('/rent-history', getStudentRentHistory);
-router.post('/invoices/:id/pay', payStudentInvoice);
+router.get('/invoices', requireFeature('student_portal', 'rent_invoicing'), getStudentInvoices);
+router.get('/rent-history', requireFeature('student_portal', 'rent_invoicing'), getStudentRentHistory);
+router.post('/invoices/:id/pay', requireFeature('student_portal', 'rent_invoicing'), payStudentInvoice);
 
 // ── Complaints ────────────────────────────────────────────────
-router.get('/complaints', getStudentComplaints);
-router.post('/complaints', createStudentComplaint);
+router.get('/complaints', requireFeature('student_portal', 'basic_complaints'), getStudentComplaints);
+router.post('/complaints', requireFeature('student_portal', 'basic_complaints'), createStudentComplaint);
 
 // ── Mess / Food ───────────────────────────────────────────────
-router.get('/mess', getStudentMess);
-router.get('/mess-menu', getStudentMess);
-router.post('/mess/wallet/recharge', rechargeMessWallet);
-router.post('/mess/order', orderMeal);
-router.patch('/mess/orders/:id/rate', rateMeal);
+router.get('/mess', requireFeature('student_portal', 'mess_wallet'), getStudentMess);
+router.get('/mess-menu', requireFeature('student_portal', 'mess_wallet'), getStudentMess);
+router.post('/mess/wallet/recharge', requireFeature('student_portal', 'mess_wallet'), rechargeMessWallet);
+router.post('/mess/order', requireFeature('student_portal', 'mess_wallet'), orderMeal);
+router.patch('/mess/orders/:id/rate', requireFeature('student_portal', 'mess_wallet'), rateMeal);
 
 // ── Notices / Broadcasts ──────────────────────────────────────
 router.get('/notices', getStudentNotices);
@@ -88,6 +89,7 @@ router.post('/leaves', requestStudentLeave);
 router.patch('/leaves/:id/cancel', cancelStudentLeave);
 
 // ── SOS / Safety ──────────────────────────────────────────────
+// Deliberately NOT gated by plan features: emergency safety must always work.
 router.post('/sos', triggerStudentSOS);
 router.patch('/sos/:id/resolve', resolveStudentSOS);
 router.get('/sos/history', getStudentSOSHistory);

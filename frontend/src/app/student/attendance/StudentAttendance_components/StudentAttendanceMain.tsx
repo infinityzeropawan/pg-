@@ -2,7 +2,8 @@
 
 // RESPONSIBILITY: Renders the Student Attendance UI with QR Gate Scanner and In/Out Reason modal.
 
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Html5Qrcode, Html5QrcodeScannerState } from 'html5-qrcode';
 import { 
   QrCode, 
   Calendar as CalendarIcon, 
@@ -16,13 +17,14 @@ import {
   Compass, 
   X, 
   Send, 
-  Sparkles,
+  CameraOff,
   UserCheck,
   AlertTriangle
 } from 'lucide-react';
 import { useStudentContext } from '@/app/student/student_components/StudentContext';
 import {
   useStudentAttendance,
+  stashGateToken,
   type CalendarCellStatus,
 } from '@/app/student/attendance/StudentAttendance_hooks/useStudentAttendance';
 
@@ -38,6 +40,9 @@ const REASON_OPTIONS = [
   { id: 'Other', label: '💬 Other Purpose' },
 ];
 
+/** Container id that html5-qrcode mounts the live camera feed into. */
+const SCANNER_ELEMENT_ID = 'gate-qr-reader';
+
 export function StudentAttendanceMain() {
   const { profile, loading: ctxLoading } = useStudentContext();
 
@@ -52,10 +57,17 @@ export function StudentAttendanceMain() {
     error,
     monthLabel,
     recordGateAttendance,
+    applyScannedPayload,
+    clearGateToken,
+    pendingScanRestored,
   } = useStudentAttendance();
 
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scanStep, setScanStep] = useState<'scan' | 'form' | 'success'>('scan');
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [cameraActive, setCameraActive] = useState(false);
+  const [scanAttempt, setScanAttempt] = useState(0);
+  const scannerRef = useRef<Html5Qrcode | null>(null);
 
   // Gate Form State
   const [gateAction, setGateAction] = useState<'entry' | 'exit'>('exit');
@@ -66,14 +78,113 @@ export function StudentAttendanceMain() {
 
   const handleOpenScanner = () => {
     setScanStep('scan');
+    setScanError(null);
+    setScanAttempt(0);
+    // A new scan invalidates any token left over from a previous attempt.
+    clearGateToken();
     // Pre-populate the default action from the live gate status
     setGateAction(currentStatus === 'INSIDE' ? 'exit' : 'entry');
     setIsScannerOpen(true);
   };
 
-  const handleSimulateScan = () => {
+  /** Releases the camera stream; safe to call when it never started. */
+  const stopScanner = useCallback(async () => {
+    const scanner = scannerRef.current;
+    scannerRef.current = null;
+    setCameraActive(false);
+    if (!scanner) return;
+    try {
+      const state = scanner.getState();
+      if (state === Html5QrcodeScannerState.SCANNING || state === Html5QrcodeScannerState.PAUSED) {
+        await scanner.stop();
+      }
+      scanner.clear();
+    } catch {
+      // Stream already gone — nothing left to release.
+    }
+  }, []);
+
+  /** A decoded payload must be a gate poster before the form is unlocked. */
+  const handleDecoded = useCallback(
+    (decodedText: string) => {
+      if (!applyScannedPayload(decodedText)) return;
+      void stopScanner();
+      setScanStep('form');
+    },
+    [applyScannedPayload, stopScanner]
+  );
+
+  const closeScanner = useCallback(() => {
+    void stopScanner();
+    setIsScannerOpen(false);
+    clearGateToken();
+  }, [clearGateToken, stopScanner]);
+
+  // Live camera decode.
+  //
+  // BUG HISTORY: this modal used to show a decorative viewfinder plus a
+  // "Simulate / Confirm QR Scan" button that jumped straight to the form. Nothing
+  // ever decoded a QR code and the API call carried no proof the resident was on
+  // site, so attendance could be marked from anywhere.
+  useEffect(() => {
+    if (!isScannerOpen || scanStep !== 'scan') return;
+    let cancelled = false;
+
+    const start = async () => {
+      setScanError(null);
+      try {
+        const scanner = new Html5Qrcode(SCANNER_ELEMENT_ID, { verbose: false });
+        scannerRef.current = scanner;
+        await scanner.start(
+          { facingMode: 'environment' },
+          { fps: 10, qrbox: { width: 220, height: 220 } },
+          (decodedText) => handleDecoded(decodedText),
+          () => {
+            // Per-frame decode misses are expected while framing the code.
+          }
+        );
+        if (!cancelled) setCameraActive(true);
+      } catch (e) {
+        if (cancelled) return;
+        console.error('[StudentAttendanceMain] Camera unavailable:', e);
+        setCameraActive(false);
+        setScanError(
+          'Camera access was blocked or no camera is available. Scan the poster with your phone camera instead — it opens this page with the gate pass attached.'
+        );
+      }
+    };
+
+    void start();
+    return () => {
+      cancelled = true;
+      void stopScanner();
+    };
+  }, [isScannerOpen, scanStep, handleDecoded, stopScanner, scanAttempt]);
+
+  // Poster scanned with the native phone camera -> `?gate=<token>` deep link.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const token = new URLSearchParams(window.location.search).get('gate');
+    if (!token) return;
+    // Stash before applying: the layout may bounce an unauthenticated visitor to
+    // /student/login (dropping the query), and the pass must survive that trip.
+    stashGateToken(token);
+    if (!applyScannedPayload(token)) return;
+
+    setGateAction(currentStatus === 'INSIDE' ? 'exit' : 'entry');
     setScanStep('form');
-  };
+    setIsScannerOpen(true);
+    // Keep the URL clean so a refresh does not re-trigger the pass.
+    window.history.replaceState({}, '', window.location.pathname);
+  }, [applyScannedPayload, currentStatus]);
+
+  // A pass scanned before signing in was restored — jump straight to the confirm step.
+  useEffect(() => {
+    if (!pendingScanRestored || isScannerOpen) return;
+    setGateAction(currentStatus === 'INSIDE' ? 'exit' : 'entry');
+    setScanStep('form');
+    setIsScannerOpen(true);
+  }, [pendingScanRestored, isScannerOpen, currentStatus]);
 
   const handleSubmitAttendance = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -345,44 +456,64 @@ export function StudentAttendanceMain() {
                 </h3>
               </div>
               <button
-                onClick={() => setIsScannerOpen(false)}
+                onClick={closeScanner}
                 className="p-1.5 text-secondary hover:text-primary rounded-lg hover:bg-input transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Step 1: Camera Scanner Viewfinder */}
+            {/* Step 1: Live camera scanner */}
             {scanStep === 'scan' && (
               <div className="p-6 text-center space-y-5">
-                <div className="relative w-64 h-64 mx-auto bg-slate-950 rounded-2xl overflow-hidden border-2 border-primary/40 flex flex-col items-center justify-center shadow-inner">
-                  {/* Scanner Grid and Laser Animation */}
-                  <div className="absolute inset-0 bg-[radial-gradient(#3b82f6_1px,transparent_1px)] [background-size:16px_16px] opacity-25"></div>
-                  <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-primary to-transparent animate-bounce"></div>
-                  
-                  {/* Corner Reticles */}
-                  <div className="absolute top-4 left-4 w-6 h-6 border-t-2 border-l-2 border-primary rounded-tl"></div>
-                  <div className="absolute top-4 right-4 w-6 h-6 border-t-2 border-r-2 border-primary rounded-tr"></div>
-                  <div className="absolute bottom-4 left-4 w-6 h-6 border-b-2 border-l-2 border-primary rounded-bl"></div>
-                  <div className="absolute bottom-4 right-4 w-6 h-6 border-b-2 border-r-2 border-primary rounded-br"></div>
+                <div className="relative w-64 h-64 mx-auto bg-slate-950 rounded-2xl overflow-hidden border-2 border-primary/40 shadow-inner">
+                  {/* html5-qrcode injects the live <video> feed into this element. */}
+                  <div
+                    id={SCANNER_ELEMENT_ID}
+                    className="w-full h-full [&_video]:w-full [&_video]:h-full [&_video]:object-cover"
+                  />
 
-                  <Camera className="w-12 h-12 text-primary/80 mb-2 animate-pulse" />
-                  <p className="text-xs font-semibold text-white/90">Point camera at Gate QR poster</p>
-                  <span className="text-[10px] text-white/50">{profile?.propertyName || 'PG Main Entrance'}</span>
+                  {/* Laser sweep + corner reticles stay above the feed */}
+                  <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-primary to-transparent animate-bounce pointer-events-none"></div>
+                  <div className="absolute top-4 left-4 w-6 h-6 border-t-2 border-l-2 border-primary rounded-tl pointer-events-none"></div>
+                  <div className="absolute top-4 right-4 w-6 h-6 border-t-2 border-r-2 border-primary rounded-tr pointer-events-none"></div>
+                  <div className="absolute bottom-4 left-4 w-6 h-6 border-b-2 border-l-2 border-primary rounded-bl pointer-events-none"></div>
+                  <div className="absolute bottom-4 right-4 w-6 h-6 border-b-2 border-r-2 border-primary rounded-br pointer-events-none"></div>
+
+                  {!cameraActive && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-slate-950">
+                      <Camera className="w-10 h-10 text-primary/80 animate-pulse" />
+                      <p className="text-xs font-semibold text-white/90">Starting camera…</p>
+                      <span className="text-[10px] text-white/50">{profile?.propertyName || 'PG Main Entrance'}</span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-2">
                   <p className="text-xs text-secondary">
-                    Scanning the gate standee verifies your physical presence at the property entrance.
+                    Point the camera at the gate QR poster on the wall — the code is verified against this
+                    property, so a poster from another PG will not work.
                   </p>
                   
-                  <button
-                    onClick={handleSimulateScan}
-                    className="w-full py-3 bg-primary text-white text-sm font-bold rounded-xl hover:bg-primary-hover active:scale-95 transition-all shadow-md cursor-pointer flex items-center justify-center gap-2"
-                  >
-                    <Sparkles className="w-4 h-4" />
-                    Simulate / Confirm QR Scan
-                  </button>
+                  {scanError ? (
+                    <>
+                      <div className="flex items-start gap-2 text-left text-xs text-amber-700 bg-amber-500/10 border border-amber-500/20 rounded-xl p-3">
+                        <CameraOff className="w-4 h-4 shrink-0 mt-0.5" />
+                        <span>{scanError}</span>
+                      </div>
+                      <button
+                        onClick={() => setScanAttempt((n) => n + 1)}
+                        className="w-full py-3 bg-primary text-white text-sm font-bold rounded-xl hover:bg-primary-hover active:scale-95 transition-all shadow-md cursor-pointer flex items-center justify-center gap-2"
+                      >
+                        <Camera className="w-4 h-4" />
+                        Retry camera
+                      </button>
+                    </>
+                  ) : (
+                    <p className="text-[10px] text-secondary">
+                      Camera active — hold the poster steady inside the frame.
+                    </p>
+                  )}
                 </div>
               </div>
             )}
@@ -540,7 +671,7 @@ export function StudentAttendanceMain() {
                 </div>
 
                 <button
-                  onClick={() => setIsScannerOpen(false)}
+                  onClick={closeScanner}
                   className="w-full py-2.5 bg-primary text-white text-xs font-bold rounded-xl hover:bg-primary-hover transition-colors cursor-pointer"
                 >
                   Done

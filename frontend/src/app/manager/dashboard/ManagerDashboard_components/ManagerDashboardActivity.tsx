@@ -1,34 +1,92 @@
-import { UserPlus, Wallet, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { LogIn, LogOut, ClipboardList } from 'lucide-react';
 
-export function ManagerDashboardActivity() {
-  const activities = [
-    { id: 1, text: 'Rahul Kumar completed check-in for Room 101', time: '10 mins ago', icon: CheckCircle2, color: 'text-success', bg: 'bg-success-bg' },
-    { id: 2, text: 'New complaint logged: AC not working in Room 204', time: '1 hour ago', icon: AlertCircle, color: 'text-danger', bg: 'bg-danger-bg' },
-    { id: 3, text: 'Rent payment of ₹5,000 received from Amit Singh', time: '3 hours ago', icon: Wallet, color: 'text-theme-primary', bg: 'bg-theme-primary/10' },
-    { id: 4, text: 'Visitor approved for Student Rohan (Room 302)', time: '5 hours ago', icon: UserPlus, color: 'text-info', bg: 'bg-info-bg' },
-  ];
+import type { ManagerDashboardStats } from '@/app/manager/dashboard/ManagerDashboard_types/ManagerDashboard.types';
+
+interface Props {
+  stats: ManagerDashboardStats | null;
+}
+
+interface ActivityItem {
+  id: string;
+  text: string;
+  meta: string;
+  icon: typeof LogIn;
+  color: string;
+  bg: string;
+}
+
+/**
+ * Renders real recent stay / gate activity returned by the backend dashboard.
+ * The previous version showed a fabricated feed ("Rahul Kumar completed check-in
+ * for Room 101", "₹5,000 received from Amit Singh") with invented timestamps.
+ */
+export function ManagerDashboardActivity({ stats }: Props) {
+  const activities: ActivityItem[] = [];
+
+  (stats?.recentStays ?? []).slice(0, 3).forEach((stay, i) => {
+    activities.push({
+      id: `stay-${stay.id ?? i}`,
+      text: `${stay.tenantName} — ${stay.propertyName}, Room ${stay.roomNumber} / Bed ${stay.bedNumber}`,
+      meta: String(stay.status || '').replace(/_/g, ' ').toLowerCase(),
+      icon: StayIcon(stay.status),
+      color: stay.status === 'CHECKED_OUT' ? 'text-warning' : 'text-success',
+      bg: stay.status === 'CHECKED_OUT' ? 'bg-warning-bg' : 'bg-success-bg',
+    });
+  });
+
+  (stats?.recentGateLogs ?? []).slice(0, 3).forEach((log, i) => {
+    activities.push({
+      id: `gate-${log.id ?? i}`,
+      text: `${log.visitorName || 'Gate entry'} — ${String(log.entryType || '').replace(/_/g, ' ').toLowerCase()}`,
+      meta: log.createdAt ? new Date(log.createdAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '',
+      icon: LogIn,
+      color: 'text-info',
+      bg: 'bg-info-bg',
+    });
+  });
+
+  (stats?.latestEnquiries ?? []).slice(0, 3).forEach((enq, i) => {
+    activities.push({
+      id: `enq-${i}`,
+      text: `Enquiry from ${enq.name} (${enq.property})`,
+      meta: enq.status,
+      icon: ClipboardList,
+      color: enq.status === 'Resolved' ? 'text-success' : 'text-theme-primary',
+      bg: enq.status === 'Resolved' ? 'bg-success-bg' : 'bg-theme-primary/10',
+    });
+  });
+
+  const visible = activities.slice(0, 5);
 
   return (
     <div className="bg-card border border-border rounded-[var(--radius-lg)] p-5 h-full shadow-sm">
       <h3 className="font-black text-primary text-lg border-b border-border pb-3 mb-4 flex items-center gap-2">Recent Activity</h3>
-      <div className="space-y-0 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-border before:to-transparent">
-        {activities.map((item, i) => {
-          const Icon = item.icon;
-          return (
-            <div key={item.id} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active pb-6 last:pb-0">
-              <div className="flex items-center justify-center w-10 h-10 rounded-full border-4 border-card shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 shadow-sm z-10 bg-card">
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center ${item.bg}`}>
+      {visible.length === 0 ? (
+        <p className="text-sm text-secondary">No recent activity recorded yet.</p>
+      ) : (
+        <div className="space-y-3">
+          {visible.map(item => {
+            const Icon = item.icon;
+            return (
+              <div key={item.id} className="flex items-start gap-3">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${item.bg}`}>
                   <Icon className={`w-4 h-4 ${item.color}`} />
                 </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-primary">{item.text}</p>
+                  {item.meta && <span className="text-xs font-bold text-secondary capitalize">{item.meta}</span>}
+                </div>
               </div>
-              <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] bg-input/50 p-3 rounded-[var(--radius-md,8px)] border border border-transparent hover:border-border transition-colors">
-                <p className="text-sm font-medium text-primary mb-1">{item.text}</p>
-                <span className="text-xs font-bold text-secondary">{item.time}</span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
+}
+
+function StayIcon(status: string) {
+  const normalized = String(status || '').toUpperCase();
+  if (normalized === 'CHECKED_OUT') return LogOut;
+  return LogIn;
 }

@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { prisma } from '../../db';
 import { UserRole, OwnerRequestStatus, StayStatus } from '@prisma/client';
+import { FeatureService } from '../features/features.service';
 
 export class SuperadminService {
   // Dashboard metrics
@@ -417,7 +418,6 @@ export class SuperadminService {
   }
 
   static async listFeatureFlags() { return prisma.featureFlag.findMany({ orderBy: [{ key: 'asc' }, { ownerId: 'asc' }] }); }
-
   static async toggleFeatureFlag(key: string, ownerId: string, isEnabled: boolean, adminId: string, description?: string) {
     const flag = await prisma.featureFlag.upsert({
       where: { key_ownerId: { key, ownerId } },
@@ -426,6 +426,28 @@ export class SuperadminService {
     });
     await prisma.auditLog.create({ data: { actorId: adminId, action: 'FEATURE_FLAG_UPDATED', entityType: 'FeatureFlag', entityId: flag.id, details: JSON.stringify({ key, ownerId, isEnabled }) } });
     return flag;
+  }
+
+  /**
+   * Save a plan's feature entitlements. This is the "what your plan pays for" half of
+   * the matrix; per-owner overrides (FeatureFlag) still win on top of it.
+   */
+  static async setPlanFeatureEntitlements(
+    planId: string,
+    items: Array<{ featureKey: string; isEnabled: boolean }>,
+    adminId: string,
+  ) {
+    const saved = await FeatureService.setPlanFeatures(planId, items);
+    await prisma.auditLog.create({
+      data: {
+        actorId: adminId,
+        action: 'PLAN_FEATURES_UPDATED',
+        entityType: 'PlatformPlan',
+        entityId: planId,
+        details: JSON.stringify(items),
+      },
+    });
+    return saved;
   }
 
   static async listTickets() { return prisma.supportTicket.findMany({ orderBy: { createdAt: 'desc' } }); }

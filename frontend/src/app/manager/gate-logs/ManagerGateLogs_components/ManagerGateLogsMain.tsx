@@ -9,6 +9,7 @@ import { useManagerPropertyContext } from '@/app/manager/manager_components/Mana
 import { ManagerGateLogsTable } from '@/app/manager/gate-logs/ManagerGateLogs_components/ManagerGateLogsTable';
 import { ManagerGateLogsForm } from '@/app/manager/gate-logs/ManagerGateLogs_components/ManagerGateLogsForm';
 import { GateQrPosterModal } from '@/components/qr/GateQrPosterModal';
+import { businessDayKey } from '@/lib/utils/datetime';
 
 export function ManagerGateLogsMain() {
   const {
@@ -41,20 +42,18 @@ export function ManagerGateLogsMain() {
     );
   }
 
-  // Find active property details
-  const activeProperty = (properties as any[])?.find(p => p.id === selectedPropertyId) || {
-    id: selectedPropertyId,
-    name: 'PG Property',
-    address: 'Main Entrance Gate',
-    curfewTime: '10:00 PM',
-    contactPhone: '+91 98765 43210'
-  };
+  // Property currently selected in the top navigation. No fabricated fallbacks:
+  // the poster and the panel must never show invented details.
+  const activeProperty = (properties as any[])?.find(p => p.id === selectedPropertyId);
 
-  // Calculate live statistics
-  const today = new Date().toISOString().split('T')[0] || '';
-  const todayLogs = logs.filter(l => (l.timestamp || l.createdAt || '').startsWith(today));
-  
-  // Estimate outside vs inside based on last gate log per student
+  // Calculate live statistics. The day key must use the same business timezone as the
+  // stored timestamps — `toISOString()` returns the UTC date, which is still yesterday
+  // between 00:00 and 05:30 IST and silently moved today's scans into yesterday.
+  const today = businessDayKey();
+  const todayLogs = logs.filter(l => businessDayKey(l.timestamp || l.createdAt || '') === today);
+
+  // Inside/outside is the *latest* movement per student (the API returns logs newest
+  // first), so a student whose last scan was an exit is outside.
   const studentLatestMove: Record<string, string> = {};
   logs.forEach(l => {
     if (!studentLatestMove[l.studentId]) {
@@ -62,7 +61,7 @@ export function ManagerGateLogsMain() {
     }
   });
 
-  const totalStudents = students.length || 1;
+  const totalStudents = students.length;
   const outsideCount = Object.values(studentLatestMove).filter(t => t === 'exit').length;
   const insideCount = Math.max(0, totalStudents - outsideCount);
   const lateCount = todayLogs.filter(l => l.isLate).length;
@@ -77,7 +76,8 @@ export function ManagerGateLogsMain() {
             🛡️ Gate Logs & Attendance
           </h1>
           <p className="text-xs text-secondary mt-1">
-            Real-time tracking of student entries, exits, reasons, and curfew compliance for {activeProperty.name}.
+            Real-time tracking of student entries, exits, reasons, and curfew compliance
+            {activeProperty?.name ? ` for ${activeProperty.name}` : ''}.
           </p>
         </div>
 
@@ -147,11 +147,11 @@ export function ManagerGateLogsMain() {
         </div>
       </div>
 
-      {/* Gate QR Poster Modal */}
+      {/* Gate QR Poster Modal — fetches the signed token + real property details */}
       <GateQrPosterModal
         isOpen={isPosterModalOpen}
         onClose={() => setIsPosterModalOpen(false)}
-        property={activeProperty}
+        propertyId={selectedPropertyId}
       />
 
     </div>

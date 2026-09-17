@@ -1,5 +1,7 @@
 // RESPONSIBILITY: Renders the ManagerDashboardMain component.
 'use client';
+import { TriangleAlert } from 'lucide-react';
+
 import { useManagerDashboard } from '@/app/manager/dashboard/ManagerDashboard_hooks/useManagerDashboard';
 import { ManagerDashboardHeader } from '@/app/manager/dashboard/ManagerDashboard_components/ManagerDashboardHeader';
 import { ManagerDashboardStatsGrid } from '@/app/manager/dashboard/ManagerDashboard_components/ManagerDashboardStatsGrid';
@@ -14,10 +16,8 @@ export function ManagerDashboardMain() {
   const {
     stats,
     loading,
-    kitchenRequests,
-    readyMeals,
+    error,
     isPresent,
-    handleAnnounceMeal,
     handleMarkPresent,
     selectedPropertyId,
     ctxLoading,
@@ -31,7 +31,22 @@ export function ManagerDashboardMain() {
   if (properties.length === 0 || !selectedPropertyId) {
     return <ManagerDashboardNoProperty />;
   }
-  
+
+  // Failures are shown explicitly instead of being masked by locally-invented data.
+  if (error) {
+    return (
+      <div className="m-4 rounded-[var(--radius-lg)] border border-danger bg-danger-bg p-5 text-danger">
+        <div className="flex items-center gap-2 font-bold mb-1">
+          <TriangleAlert className="w-5 h-5" /> Could not load dashboard data
+        </div>
+        <p className="text-sm">{error}</p>
+        <p className="text-xs mt-2 opacity-80">
+          No placeholder figures are shown. Retry once the backend is reachable.
+        </p>
+      </div>
+    );
+  }
+
   const selectedProp = properties.find((p) => (p as { id: string }).id === selectedPropertyId);
 
   return (
@@ -52,12 +67,12 @@ export function ManagerDashboardMain() {
 
       {/* Row 3: 2 Columns */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <ManagerDashboardTasks />
-        <ManagerDashboardActivity />
+        <ManagerDashboardTasks stats={stats} />
+        <ManagerDashboardActivity stats={stats} />
       </div>
 
       {/* Row 4: Weekly Performance Summary */}
-      <ManagerDashboardPerformance />
+      <ManagerDashboardPerformance stats={stats} />
 
       {/* Bottom: Quick Action Buttons */}
       <ManagerDashboardQuickActions />

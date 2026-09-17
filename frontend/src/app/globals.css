@@ -379,4 +379,34 @@ body {
     box-shadow: none !important;
     text-shadow: none !important;
   }
+
+  /*
+   * Gate QR poster sheet (`#gate-qr-print-sheet`).
+   *
+   * Printing used to dump the whole dashboard behind the modal — the poster was
+   * clipped to the viewport instead of filling the paper. Hide every other element
+   * and lift the sheet to the top-left of the page, keeping its colours.
+   */
+  body * { visibility: hidden; }
+  #gate-qr-print-sheet,
+  #gate-qr-print-sheet * { visibility: visible; }
+
+  #gate-qr-print-sheet {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    padding: 12mm;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  @page { margin: 10mm; }
 }

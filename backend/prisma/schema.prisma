@@ -246,10 +246,47 @@ model PlatformPlan {
   maxBeds       Int
   priceMonthly  Int            // In Paise (e.g., 299900 = ₹2999)
   priceYearly   Int            // In Paise
-  features      String         // JSON string array
+  features      String         // JSON string array (legacy summary, kept for compatibility)
+  entitlements  PlanFeature[]
   subscriptions Subscription[]
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
+}
+
+// Canonical catalog of every toggleable product capability.
+// SuperAdmin manages which features each plan grants; per-owner overrides live in FeatureFlag.
+model Feature {
+  id             String        @id @default(uuid())
+  key            String        @unique // stable code used by API guards, e.g. "mess_wallet"
+  name           String
+  description    String?
+  category       String        @default("General")
+  isCore         Boolean       @default(false) // core features cannot be disabled by plan
+  defaultEnabled Boolean       @default(false)
+  enforced       Boolean       @default(true) // false = catalog-only placeholder, not wired to a runtime gate
+  sortOrder      Int           @default(0)
+  isActive       Boolean       @default(true)
+  entitlements   PlanFeature[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([category])
+  @@index([isActive])
+}
+
+// Plan → feature entitlement. An explicit row always wins over Feature.defaultEnabled.
+model PlanFeature {
+  id         String       @id @default(uuid())
+  planId     String
+  plan       PlatformPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  featureKey String
+  feature    Feature      @relation(fields: [featureKey], references: [key], onDelete: Cascade)
+  isEnabled  Boolean      @default(false)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  @@unique([planId, featureKey])
+  @@index([featureKey])
 }
 
 model Subscription {
@@ -333,6 +370,8 @@ model Property {
   pincode         String
   contactPhone    String
   contactEmail    String
+  // Wall-clock curfew (HH:mm, business timezone). Drives late-return detection.
+  curfewTime      String         @default("22:00")
   amenities       String         // JSON string
   images          String         // JSON string
   rules           String?
@@ -709,10 +748,14 @@ model GateLog {
   isLate             Boolean   @default(false)
   loggedBy           String?
   passCode           String?
+  // Set when the linked parent notification was actually persisted for this log.
+  // Previously the API guessed this from "does the resident have a parent?".
+  parentNotifiedAt   DateTime?
   timestamp          DateTime  @default(now())
   createdAt          DateTime  @default(now())
 
   @@index([propertyId])
+  @@index([userId, timestamp])
 }
 
 model PoliceVerification {

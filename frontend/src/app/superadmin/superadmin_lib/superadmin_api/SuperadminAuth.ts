@@ -1,13 +1,11 @@
-import { db } from '@/lib/storage/db';
+import { apiUrl } from '@/lib/config/apiBase';
 import { STORAGE_KEYS } from '@/lib/storage/keys';
 import type { SessionUser, Role, User } from '@/lib/types/models';
-
-const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api/v1';
 
 export const authApi = {
   async login({ email, password, expectedRole }: { email: string; password?: string; expectedRole?: Role }) {
     try {
-      const response = await fetch(`${BACKEND_URL}/auth/login`, {
+      const response = await fetch(apiUrl('/api/v1/auth/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -33,41 +31,18 @@ export const authApi = {
 
       return sessionUser;
     } catch (backendErr: any) {
-      console.warn('Backend login fallback to local storage:', backendErr.message);
-      // LocalStorage Fallback for offline dev
-      const users = db.getAll<User>(STORAGE_KEYS.USERS);
-      const targetRole = expectedRole ? expectedRole.toLowerCase() : 'superadmin';
-      const user = users.find(u => 
-        u.email && 
-        u.email.toLowerCase().trim() === email.toLowerCase().trim() && 
-        !u.isDeleted && 
-        (!targetRole || u.role.toLowerCase() === targetRole)
-      );
-      
-      if (!user) throw new Error(backendErr.message || 'User not found or invalid credentials');
-
-      const sessionUser: SessionUser = {
-        id: user.id,
-        role: user.role.toLowerCase() as Role,
-        name: user.name,
-        email: user.email,
-        propertyId: user.propertyId,
-        ownerId: user.ownerId,
-      };
-
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(STORAGE_KEYS.CURRENT_SESSION, JSON.stringify(sessionUser));
-      }
-      
-      return sessionUser;
+      // Authentication must go through the backend. The previous localStorage fallback
+      // matched cached accounts and allowed an offline auth bypass, so it was removed.
+      console.warn('Backend login failed:', backendErr.message);
+      throw new Error(backendErr.message || 'User not found or invalid credentials');
     }
   },
 
   logout() {
     if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('access_token');
+      const token = localStorage.getItem(STORAGE_KEYS.AUTH_TOKEN) || localStorage.getItem('access_token');
       if (token) {
-        fetch(`${BACKEND_URL}/auth/logout`, {
+        fetch(apiUrl('/api/v1/auth/logout'), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -87,24 +62,26 @@ export const authApi = {
     return data ? JSON.parse(data) : null;
   },
 
-  async changePassword(userId: string, newPassword: string) {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
-    if (token) {
-      const res = await fetch(`${BACKEND_URL}/auth/change-password`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ newPassword }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.message || 'Failed to change password');
-      return;
-    }
+  /**
+   * Changes the password through the backend. Replaces the localStorage-only branch
+   * that silently "succeeded" without a token and never updated the real hash.
+   */
+  async changePassword(_userId: string, newPassword: string, oldPassword?: string) {
+    const token = typeof window !== 'undefined'
+      ? localStorage.getItem(STORAGE_KEYS.AUTH_TOKEN) || localStorage.getItem('access_token')
+      : null;
+    if (!token) throw new Error('You must be signed in to change your password.');
 
-    const user = db.getById<User>(STORAGE_KEYS.USERS, userId);
-    if (!user) throw new Error('User not found');
-    db.update<User>(STORAGE_KEYS.USERS, userId, { password: newPassword });
+    const res = await fetch(apiUrl('/api/v1/auth/change-password'), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ newPassword, oldPassword }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.success) throw new Error(data?.message || 'Failed to change password');
+    return data.data;
   }
 };

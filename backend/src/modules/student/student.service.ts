@@ -1,5 +1,14 @@
 import { prisma } from '../../db';
 import { StayStatus, SOSStatus, BedStatus, InvoiceStatus, PaymentMethod, PaymentStatus, ComplaintStatus, AttendanceStatus } from '@prisma/client';
+import { extractGateToken, verifyGateToken } from '../../utils/gateQr';
+import {
+  BUSINESS_TZ_OFFSET_MINUTES,
+  DUPLICATE_GATE_LOG_WINDOW_MS,
+  attendanceDate,
+  dayKey,
+  isLateEntry,
+  monthRangeUtc,
+} from '../../utils/datetime';
 
 export class StudentService {
   /**
@@ -733,25 +742,54 @@ export class StudentService {
   // GATE ATTENDANCE
   // ============================================================
 
+  /**
+   * Records a gate movement (check-in / check-out) for the signed-in resident.
+   *
+   * `data.gateToken` is the value the camera read off the printed gate poster. It
+   * must carry a valid signature *and* belong to the property this resident
+   * actually lives in — until now the "scan" was purely cosmetic, so attendance
+   * could be recorded from anywhere, for any property, at any time.
+   */
   static async recordGateAttendance(userId: string, data: {
     type: string;
     reason?: string;
     destination?: string;
     expectedReturnTime?: string;
+    gateToken?: string;
   }) {
     const user = await prisma.user.findUnique({ where: { id: userId }, include: { tenantProfile: true } });
     if (!user?.tenantProfile) throw new Error('Profile not found');
 
     const stay = await prisma.tenantStay.findFirst({
-      where: { tenantId: user.tenantProfile.id, status: { in: [StayStatus.ACTIVE, StayStatus.CHECKED_IN] } },
+      where: { tenantId: user.tenantProfile.id, status: { in: [StayStatus.ACTIVE, StayStatus.CHECKED_IN, StayStatus.NOTICE_PERIOD] } },
       include: { bed: { include: { room: true } } },
+      orderBy: { startDate: 'desc' },
     });
     if (!stay) throw new Error('No active stay found');
 
-    const entryType = (data.type || 'ENTRY').toUpperCase();
+    // ── Verify the scanned poster ───────────────────────────────
+    const token = extractGateToken(data.gateToken);
+    if (!token) throw new Error('Scan the gate QR poster to mark this movement.');
+    const tokenPropertyId = verifyGateToken(token);
+    if (!tokenPropertyId) throw new Error('This gate QR code is not valid.');
+    if (tokenPropertyId !== stay.propertyId) throw new Error('This gate QR code belongs to a different property.');
+
+    const entryType = String(data.type || 'ENTRY').toUpperCase();
+    if (!['ENTRY', 'EXIT'].includes(entryType)) throw new Error('Gate movement must be ENTRY or EXIT');
+
     const now = new Date();
-    const hour = now.getHours();
-    const isLate = entryType === 'ENTRY' && (hour >= 22 || hour < 5);
+    const property = await prisma.property.findUnique({ where: { id: stay.propertyId }, select: { curfewTime: true } });
+    // The curfew now comes from the property record instead of a hardcoded 22:00.
+    const isLate = entryType === 'ENTRY' && isLateEntry(now, property?.curfewTime);
+
+    // ── Idempotency: a double tap or re-scan must not spam the register ──────
+    const duplicate = await prisma.gateLog.findFirst({
+      where: { userId, type: entryType, timestamp: { gte: new Date(now.getTime() - DUPLICATE_GATE_LOG_WINDOW_MS) } },
+      orderBy: { timestamp: 'desc' },
+    });
+    if (duplicate) {
+      return { ...duplicate, parentNotified: Boolean(duplicate.parentNotifiedAt), duplicate: true };
+    }
 
     const gateLog = await prisma.gateLog.create({
       data: {
@@ -760,41 +798,19 @@ export class StudentService {
         studentName: user.fullName,
         roomNumber: stay.bed?.room?.roomNumber || '',
         type: entryType,
-        entryType: entryType,
+        entryType,
         reason: data.reason || 'General',
         destination: data.destination || '',
-        expectedReturnTime: data.expectedReturnTime || null,
+        expectedReturnTime: entryType === 'EXIT' ? data.expectedReturnTime || null : null,
         isLate,
-        loggedBy: 'Student App',
+        loggedBy: 'Gate QR Scan',
+        passCode: token,
         timestamp: now,
       },
     });
 
-    // Update daily attendance record
-    const today = new Date(now);
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
-    const existingAttendance = await prisma.attendance.findFirst({
-      where: {
-        propertyId: stay.propertyId,
-        userId,
-        date: { gte: today, lt: tomorrow },
-      },
-    });
-
-    if (!existingAttendance) {
-      await prisma.attendance.create({
-        data: {
-          propertyId: stay.propertyId,
-          userId,
-          date: today,
-          status: AttendanceStatus.PRESENT,
-          remarks: `Gate ${entryType.toLowerCase()} recorded at ${now.toLocaleTimeString()}`,
-        },
-      }).catch(() => {}); // Silently handle unique constraint
-    }
+    // ── Daily attendance row (canonical day, genuinely updated) ─────────────
+    await StudentService.applyGateAttendance(stay.propertyId, userId, now, entryType);
 
     // Notify the linked parent account so the "Parent Alert" column on the student
     // screen reflects a real, persisted notification rather than a UI claim.
@@ -807,26 +823,57 @@ export class StudentService {
           : `${user.fullName} checked out. ${data.reason ? `Reason: ${data.reason}` : ''}${data.destination ? ` Destination: ${data.destination}.` : ''}${data.expectedReturnTime ? ` Expected return: ${data.expectedReturnTime}.` : ''}`.trim(),
     });
 
-    return { ...gateLog, parentNotified: parentNotified > 0 };
+    const notifiedAt = parentNotified > 0 ? new Date() : null;
+    if (notifiedAt) {
+      await prisma.gateLog.update({ where: { id: gateLog.id }, data: { parentNotifiedAt: notifiedAt } });
+    }
+
+    return { ...gateLog, parentNotifiedAt: notifiedAt, parentNotified: parentNotified > 0 };
+  }
+
+  /**
+   * When the resident appears at the gate they are present for that day.
+   *
+   * BUG HISTORY: this used to be `findFirst` + `create({...}).catch(() => {})`, so an
+   * existing row was *never* updated (an approved leave stayed on the calendar even
+   * after the resident scanned in) and real database errors were swallowed.
+   */
+  private static async applyGateAttendance(propertyId: string, userId: string, now: Date, entryType: string) {
+    const day = attendanceDate(now);
+    const local = new Date(now.getTime() + BUSINESS_TZ_OFFSET_MINUTES * 60_000);
+    const hh = String(local.getUTCHours()).padStart(2, '0');
+    const mm = String(local.getUTCMinutes()).padStart(2, '0');
+    const remarks = `Gate ${entryType.toLowerCase()} at ${hh}:${mm}`;
+
+    const key = { propertyId, userId, date: day };
+    const existing = await prisma.attendance.findUnique({ where: { propertyId_userId_date: key } });
+
+    if (!existing) {
+      try {
+        return await prisma.attendance.create({ data: { ...key, status: AttendanceStatus.PRESENT, remarks } });
+      } catch {
+        // Lost a race against a concurrent scan — the winner's row is updated below.
+      }
+    }
+
+    const current = await prisma.attendance.findUnique({ where: { propertyId_userId_date: key } });
+    if (!current) throw new Error('Could not record attendance for this movement');
+
+    // An approved leave is deliberate: keep the status and only refresh the remark.
+    const status = current.status === AttendanceStatus.ON_LEAVE ? current.status : AttendanceStatus.PRESENT;
+    return prisma.attendance.update({ where: { id: current.id }, data: { status, remarks } });
   }
 
   static async getGateLogs(userId: string) {
-    const [logs, student] = await Promise.all([
-      prisma.gateLog.findMany({
-        where: { userId },
-        orderBy: { createdAt: 'desc' },
-        take: 100,
-      }),
-      prisma.user.findUnique({
-        where: { id: userId },
-        include: { tenantProfile: { include: { parentProfile: { select: { id: true } } } } },
-      }),
-    ]);
+    const logs = await prisma.gateLog.findMany({
+      where: { userId },
+      orderBy: { timestamp: 'desc' },
+      take: 100,
+    });
 
-    // A gate log is "sent to parent" when the resident has a linked parent profile —
-    // recordGateAttendance writes a NotificationLog for exactly that parent.
-    const parentNotified = Boolean(student?.tenantProfile?.parentProfile?.id);
-    return logs.map((log) => ({ ...log, parentNotified }));
+    // Per-log truth: `parentNotifiedAt` is stamped only when a NotificationLog row
+    // was actually written for this movement.
+    return logs.map((log) => ({ ...log, parentNotified: Boolean(log.parentNotifiedAt) }));
   }
 
   // ============================================================
@@ -835,47 +882,47 @@ export class StudentService {
 
   static async getAttendance(userId: string, month?: string) {
     const student = await prisma.user.findUnique({ where: { id: userId }, include: { tenantProfile: true } });
+    // Most recent stay (any status) so a past resident keeps their history.
     const stay = student?.tenantProfile
-      ? await prisma.tenantStay.findFirst({ where: { tenantId: student.tenantProfile.id } })
+      ? await prisma.tenantStay.findFirst({
+          where: { tenantId: student.tenantProfile.id },
+          orderBy: { startDate: 'desc' },
+        })
       : null;
 
-    // Build date filter for the month
-    let dateFilter: any = {};
-    if (month) {
-      const [year, mon] = month.split('-').map(Number);
-      const start = new Date(year, mon - 1, 1);
-      const end = new Date(year, mon, 0, 23, 59, 59);
-      dateFilter = { gte: start, lte: end };
-    } else {
-      const now = new Date();
-      const start = new Date(now.getFullYear(), now.getMonth(), 1);
-      const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
-      dateFilter = { gte: start, lte: end };
+    // No stay -> no attendance to show. The old filter fell back to
+    // `propertyId: undefined`, which returned this user's rows from *every* property.
+    if (!stay) {
+      return {
+        records: [],
+        gateLogs: [],
+        summary: { present: 0, absent: 0, onLeave: 0, total: 0 },
+        noStay: true,
+      };
     }
 
-    const records = await prisma.attendance.findMany({
-      where: {
-        userId,
-        propertyId: stay?.propertyId || undefined,
-        date: dateFilter,
-      },
-      orderBy: { date: 'asc' },
-    });
+    // The month is read in the business timezone and compared against the canonical
+    // day values every writer stores; the old local-midnight bounds straddled days.
+    const currentMonth = dayKey(new Date()).slice(0, 7);
+    const range = monthRangeUtc(month ?? '') ?? monthRangeUtc(currentMonth)!;
+
+    const [records, gateLogs] = await Promise.all([
+      prisma.attendance.findMany({
+        where: { userId, propertyId: stay.propertyId, date: range },
+        orderBy: { date: 'asc' },
+      }),
+      prisma.gateLog.findMany({
+        where: { userId, propertyId: stay.propertyId, timestamp: range },
+        orderBy: { timestamp: 'desc' },
+        take: 200,
+      }),
+    ]);
 
     const present = records.filter(r => r.status === AttendanceStatus.PRESENT).length;
     const absent = records.filter(r => r.status === AttendanceStatus.ABSENT).length;
     const onLeave = records.filter(r => r.status === AttendanceStatus.ON_LEAVE).length;
 
-    // Get gate logs for the same period
-    const gateLogs = stay
-      ? await prisma.gateLog.findMany({
-          where: { userId, createdAt: dateFilter },
-          orderBy: { createdAt: 'desc' },
-          take: 200,
-        })
-      : [];
-
-    return { records, gateLogs, summary: { present, absent, onLeave, total: records.length } };
+    return { records, gateLogs, summary: { present, absent, onLeave, total: records.length }, noStay: false };
   }
 
   // ============================================================

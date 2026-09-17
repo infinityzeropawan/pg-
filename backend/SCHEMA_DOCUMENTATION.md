@@ -14,7 +14,9 @@ This document describes the canonical database architecture for the Smart PG Man
 | | `AuditLog` | Audit log of security and financial actions | `ownerId`, `propertyId` |
 | **Platform** | `PlatformPlan` | SaaS pricing plans and property/bed limits | — |
 | | `Subscription` | Owner subscription history and status | `ownerId` |
-| | `FeatureFlag` | Per-owner or global feature toggles | `ownerId` |
+| | `FeatureFlag` | Per-owner feature overrides (wins over the plan entitlement) | `ownerId` |
+| | `Feature` | Canonical feature catalog. `enforced: false` = not wired to a runtime gate yet | — |
+| | `PlanFeature` | Plan → feature entitlement. Effective access = override > core > plan > catalog default | `planId` |
 | **Properties** | `Property` | PG / Hostel entity (Address, rules, amenities) | `ownerId` |
 | | `Floor` | Property floor levels | `propertyId` |
 | | `Room` | Rooms per floor (Rent defaults, room type) | `floorId` |

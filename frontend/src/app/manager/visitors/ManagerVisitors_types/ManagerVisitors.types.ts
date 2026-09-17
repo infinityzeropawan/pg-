@@ -12,9 +12,11 @@ export interface Visitor {
 export interface ManagerVisitorsData {
   visitors: Visitor[];
   loading: boolean;
+  /** Populated when the visitor list or a status change fails. */
+  error: string | null;
   selectedPropertyId: string | null;
   ctxLoading: boolean;
 }
 export interface UseManagerVisitorsReturn extends ManagerVisitorsData {
-  handleStatus: (id: string, status: string) => void;
+  handleStatus: (id: string, status: string) => Promise<void>;
 }

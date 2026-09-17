@@ -303,9 +303,9 @@ export const getStudentSOSHistory = async (req: AuthRequest, res: Response) => {
 export const recordStudentGateAttendance = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user?.userId || '';
-    const { type, reason, destination, expectedReturnTime } = req.body;
+    const { type, reason, destination, expectedReturnTime, gateToken } = req.body;
     if (!type) return sendError(res, 'Gate movement type (ENTRY/EXIT) is required', 400);
-    const data = await StudentService.recordGateAttendance(userId, { type, reason, destination, expectedReturnTime });
+    const data = await StudentService.recordGateAttendance(userId, { type, reason, destination, expectedReturnTime, gateToken });
     return sendSuccess(res, 'Gate attendance recorded successfully', data, 201);
   } catch (error: any) {
     return sendError(res, error.message || 'Failed to record gate attendance', 500, error);

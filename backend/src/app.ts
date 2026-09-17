@@ -9,6 +9,7 @@ import adminRoutes from './modules/admin/admin.routes';
 import parentRoutes from './modules/parent/parent.routes';
 import staffRoutes from './modules/staff/staff.routes';
 import studentRoutes from './modules/student/student.routes';
+import featureRoutes from './modules/features/features.routes';
 import { ENV } from './config/env';
 import { sendSuccess, sendError } from './utils/response';
 import { authenticateJwt, blockDemoWrites } from './middleware/auth.middleware';
@@ -94,6 +95,7 @@ app.use('/api/v1/admin', adminRoutes);
 app.use('/api/v1/parent', parentRoutes);
 app.use('/api/v1/staff', staffRoutes);
 app.use('/api/v1/student', studentRoutes);
+app.use('/api/v1/features', featureRoutes);
 
 // ── 404 Handler ────────────────────────────────────────────────
 app.use((req: Request, res: Response) => {

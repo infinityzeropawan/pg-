@@ -38,7 +38,7 @@ export interface ManagerGateLogsData {
 
 export interface UseManagerGateLogsReturn extends ManagerGateLogsData {
   setCurrentPage: (p: number) => void;
-  handleAdd: (studentId: string, type: 'entry' | 'exit', isLate: boolean, reason?: string, destination?: string, expectedReturnTime?: string) => void;
+  handleAdd: (studentId: string, type: 'entry' | 'exit', isLate: boolean, reason?: string, destination?: string, expectedReturnTime?: string) => Promise<boolean>;
   selectedPropertyId: string | null;
   ctxLoading: boolean;
   students: any[];

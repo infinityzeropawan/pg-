@@ -3,25 +3,25 @@
 // RESPONSIBILITY: Renders the OwnerRoomsMain component. Receives data via props/hooks.
 
 import { useState, useEffect } from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, AlertTriangle } from 'lucide-react';
 
 import { getSession } from '@/app/owner/owner_lib/owner_auth/OwnerSession';
-import { roomsApi } from '@/app/owner/owner_lib/owner_api/OwnerRooms';
-import { bedsApi } from '@/app/owner/owner_lib/owner_api/OwnerBeds';
+import { roomsApi, mapRoomFromBackend } from '@/app/owner/owner_lib/owner_api/OwnerRooms';
 import { useOwnerPropertyContext } from '@/app/owner/owner_components/OwnerPropertyContext';
 import { OwnerRoomsKPIs } from '@/app/owner/rooms/OwnerRooms_components/OwnerRoomsKPIs';
 import { OwnerRoomsFilters } from '@/app/owner/rooms/OwnerRooms_components/OwnerRoomsFilters';
 import { OwnerRoomsTable } from '@/app/owner/rooms/OwnerRooms_components/OwnerRoomsTable';
 import { OwnerRoomsAddModal } from '@/app/owner/rooms/OwnerRooms_components/OwnerRoomsAddModal';
 
-import type { Room } from '@/app/owner/owner_lib/owner_api/OwnerRooms';
+import type { OwnerRoomView } from '@/app/owner/owner_lib/owner_api/OwnerRooms';
 
 export function OwnerRoomsMain() {
   const user = typeof window !== 'undefined' ? getSession() : null;
   const { properties, selectedPropertyId, setSelectedPropertyId } = useOwnerPropertyContext();
   
-  const [rooms, setRooms] = useState<(Room & { bedsCount: number; vacantCount: number })[]>([]);
+  const [rooms, setRooms] = useState<OwnerRoomView[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   
@@ -32,81 +32,38 @@ export function OwnerRoomsMain() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
   
-  // Modal State
+  // Modal State — mirrors what POST /rooms persists (rent and beds are per room).
   const [formData, setFormData] = useState({
     propertyId: '',
     floor: 1,
     number: '',
     sharing: 2,
-    rentPerBed: 5000,
-    deposit: 5000,
-    amenities: 'AC, Attached Washroom, Balcony'
+    rentPerBed: 5000
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
+  const selectedPropertyIds = selectedPropertyId === 'all'
+    ? properties.map(p => p.id)
+    : [selectedPropertyId];
+
   const loadData = async () => {
     if (!user) return;
     setLoading(true);
+    setLoadError('');
     try {
-      let backendRooms: any[] = [];
-      if (selectedPropertyId === 'all') {
-        const results = await Promise.all(
-          properties.map(p => roomsApi.fetchRoomsByProperty(p.id).catch(() => []))
-        );
-        backendRooms = results.flat();
-      } else {
-        backendRooms = await roomsApi.fetchRoomsByProperty(selectedPropertyId).catch(() => []);
-      }
-
-      if (Array.isArray(backendRooms) && backendRooms.length > 0) {
-        const enhanced = backendRooms.map((r: any) => {
-          const beds = r.beds || [];
-          return {
-            id: r.id,
-            propertyId: r.propertyId,
-            floor: r.floorNumber || r.floor || 1,
-            number: r.roomNumber || r.number || '',
-            sharing: r.sharingType || r.sharing || 1,
-            rentPerBed: r.baseRentMonthly || r.rentPerBed || 0,
-            deposit: r.depositAmount || r.deposit || 0,
-            amenities: r.amenities ? (typeof r.amenities === 'string' ? JSON.parse(r.amenities) : r.amenities) : [],
-            status: r.status?.toLowerCase() === 'full' ? 'full' : 'available',
-            photos: r.photos ? (typeof r.photos === 'string' ? JSON.parse(r.photos) : r.photos) : [],
-            bedsCount: beds.length || (r.sharingType || 1),
-            vacantCount: beds.filter((b: any) => b.status === 'VACANT' || b.status === 'available').length,
-            createdAt: r.createdAt || new Date().toISOString(),
-            updatedAt: r.updatedAt || new Date().toISOString(),
-          };
-        });
-        setRooms(enhanced as any);
-        setLoading(false);
-        return;
-      }
-    } catch {
-      // Fallback
+      // The backend is the single source of truth: rooms and their beds are
+      // created together there. There is deliberately no localStorage fallback,
+      // because browser-local rows would hide real API failures and show rooms
+      // that do not exist in the database.
+      const backendRooms = await roomsApi.fetchRoomsForProperties(selectedPropertyIds);
+      setRooms(backendRooms.map(mapRoomFromBackend));
+    } catch (err) {
+      setRooms([]);
+      setLoadError(err instanceof Error ? err.message : 'Unable to load rooms.');
+    } finally {
+      setLoading(false);
     }
-
-    let allRooms: Room[] = [];
-    if (selectedPropertyId === 'all') {
-      properties.forEach(p => {
-        allRooms = [...allRooms, ...roomsApi.listByProperty(p.id)];
-      });
-    } else {
-      allRooms = roomsApi.listByProperty(selectedPropertyId);
-    }
-
-    const enhanced = allRooms.map(r => {
-      const beds = bedsApi.listByRoom(r.id);
-      return {
-        ...r,
-        bedsCount: beds.length,
-        vacantCount: beds.filter((b: any) => b.status === 'available').length
-      };
-    });
-
-    setRooms(enhanced);
-    setLoading(false);
   };
 
   useEffect(() => {
@@ -126,34 +83,22 @@ export function OwnerRoomsMain() {
     setSubmitting(true);
 
     try {
-      if (!(formData as any).propertyId) throw new Error('Please select a property.');
-      
-      try {
-        await roomsApi.createBackendRoom({
-          propertyId: (formData as any).propertyId,
-          roomNumber: String((formData as any).number),
-          floorNumber: Number((formData as any).floor),
-          sharingType: Number((formData as any).sharing),
-          baseRentMonthly: Number((formData as any).rentPerBed),
-          depositAmount: Number((formData as any).deposit),
-        });
-      } catch {
-        roomsApi.create({
-          propertyId: (formData as any).propertyId,
-          floor: (formData as any).floor,
-          number: (formData as any).number,
-          sharing: (formData as any).sharing,
-          rentPerBed: (formData as any).rentPerBed,
-          deposit: (formData as any).deposit,
-          amenities: (formData as any).amenities.split(',').map((s: any) => s.trim()).filter(Boolean),
-          status: 'available',
-          photos: [],
-          actorId: user.id
-        });
-      }
-      
+      const propertyId = formData.propertyId;
+      if (!propertyId) throw new Error('Please select a property.');
+      if (!String(formData.number).trim()) throw new Error('Room number is required.');
+
+      // One API call: the backend creates the room and its beds in a single
+      // transaction, so a room can never end up without beds.
+      await roomsApi.createBackendRoom({
+        propertyId,
+        roomNumber: String(formData.number).trim(),
+        floorNumber: Number(formData.floor),
+        bedCount: Number(formData.sharing),
+        monthlyRent: Number(formData.rentPerBed),
+      });
+
       setShowAddModal(false);
-      loadData();
+      await loadData();
     } catch (err: any) {
       setError((err as any).message || 'Failed to create room.');
     } finally {
@@ -202,6 +147,16 @@ export function OwnerRoomsMain() {
           <span>Add New Room</span>
         </button>
       </div>
+
+      {loadError && (
+        <div className="p-4 bg-danger-bg border border-danger text-danger rounded-md flex items-start justify-between gap-3 text-sm font-medium">
+          <span className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            {loadError}
+          </span>
+          <button onClick={loadData} className="text-xs underline shrink-0">Retry</button>
+        </div>
+      )}
 
       <OwnerRoomsKPIs 
         totalRooms={totalRooms}

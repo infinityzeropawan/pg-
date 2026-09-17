@@ -1,5 +1,5 @@
 // RESPONSIBILITY: Renders the ManagerDashboardHeader component.
-import { CheckCircle2, TrendingUp } from 'lucide-react';
+import { CheckCircle2 } from 'lucide-react';
 
 interface ManagerUser {
   name?: string;
@@ -15,7 +15,7 @@ interface ManagerDashboardHeaderProps {
   user: unknown;
   selectedProp: unknown;
   isPresent: boolean;
-  handleMarkPresent: () => void;
+  handleMarkPresent: () => void | Promise<void>;
 }
 
 export function ManagerDashboardHeader({ user, selectedProp, isPresent, handleMarkPresent }: ManagerDashboardHeaderProps) {
@@ -46,15 +46,6 @@ export function ManagerDashboardHeader({ user, selectedProp, isPresent, handleMa
       </div>
 
       <div className="flex items-center gap-4">
-        {/* Performance Score */}
-        <div className="hidden sm:flex flex-col items-end mr-4 pr-4 border-r border-border">
-          <span className="text-xs font-bold text-secondary uppercase mb-1">Performance Score</span>
-          <div className="flex items-center gap-1.5">
-            <TrendingUp className="w-4 h-4 text-success" />
-            <span className="text-lg font-black text-success">92/100</span>
-          </div>
-        </div>
-
         {isPresent ? (
           <div className="flex items-center gap-2 bg-success-bg border border-success/20 text-success px-4 py-2 rounded-[var(--radius-md)]">
             <CheckCircle2 className="w-4 h-4" />

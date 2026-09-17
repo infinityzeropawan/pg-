@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { toast } from 'sonner';
+
 import { useManagerUrlPagination } from '@/app/manager/manager_components/manager_hooks/useManagerUrlPagination';
 import { api } from '@/app/manager/manager_lib/manager_api/ManagerApi';
 import { useManagerPropertyContext } from '@/app/manager/manager_components/ManagerPropertyContext';
@@ -19,19 +21,18 @@ export function useManagerGateLogs(): UseManagerGateLogsReturn {
   const loadData = async () => {
     if (!ctxLoading && selectedPropertyId) {
       try {
-        const backendLogs = await adminRequest<any[]>(`/properties/${selectedPropertyId}/gate-logs`);
-        if (Array.isArray(backendLogs)) {
-          setLogs(backendLogs as unknown as GateLog[]);
-        } else {
-          const fetchedLogs = api.managerOperations.listGateLogs(selectedPropertyId) as unknown as GateLog[];
-          setLogs(fetchedLogs);
-        }
-      } catch {
-        const fetchedLogs = api.managerOperations.listGateLogs(selectedPropertyId) as unknown as GateLog[];
-        setLogs(fetchedLogs);
+        const [backendLogs, studentList] = await Promise.all([
+          adminRequest<any[]>(`/properties/${encodeURIComponent(selectedPropertyId)}/gate-logs`),
+          api.managerOperations.listStudents(selectedPropertyId),
+        ]);
+        setLogs(backendLogs.map(row => ({ ...row, studentId: row.userId,
+          type: String(row.entryType || row.type).toUpperCase() === 'EXIT' ? 'exit' : 'entry' })));
+        setStudents(studentList.filter((row: any) => ['active', 'checked_in', 'notice_period'].includes(row.profile.status)));
+      } catch (error) {
+        setLogs([]);
+        setStudents([]);
+        toast.error(error instanceof Error ? error.message : 'Unable to load gate logs');
       }
-      const studentList = api.managerOperations.listStudents(selectedPropertyId);
-      setStudents(studentList);
     }
   };
 
@@ -52,30 +53,24 @@ export function useManagerGateLogs(): UseManagerGateLogsReturn {
     destination?: string,
     expectedReturnTime?: string
   ) => {
-    if (!user || !selectedPropertyId || !studentId) return;
+    if (!user || !selectedPropertyId || !studentId) return false;
     try {
       await adminRequest('/gate-logs', {
         method: 'POST',
         body: JSON.stringify({
           propertyId: selectedPropertyId,
-          tenantId: studentId,
+          studentId,
           type: type.toUpperCase(),
-          reason,
+          reason, destination, expectedReturnTime, isLate,
         })
       });
-    } catch {
-      api.managerOperations.addGateLog({
-        propertyId: selectedPropertyId,
-        studentId,
-        type,
-        isLate,
-        reason,
-        destination,
-        expectedReturnTime,
-        managerId: user.id
-      });
+      await loadData();
+      toast.success('Gate movement recorded');
+      return true;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to record gate movement');
+      return false;
     }
-    loadData();
   };
 
   const sortedLogs = [...logs].sort((a,b) => new Date((b.timestamp || b.createdAt) as string).getTime() - new Date((a.timestamp || a.createdAt) as string).getTime());

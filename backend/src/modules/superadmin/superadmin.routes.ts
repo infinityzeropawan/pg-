@@ -20,6 +20,10 @@ import {
   updateSettings,
   listFeatureFlags,
   updateFeatureFlag,
+  listFeatureCatalog,
+  getFeatureMatrix,
+  upsertFeature,
+  updatePlanFeatures,
   listTickets,
   createTicket,
   updateTicketStatus,
@@ -57,6 +61,12 @@ router.put('/settings', updateSettings);
 
 router.get('/feature-flags', listFeatureFlags);
 router.put('/feature-flags', updateFeatureFlag);
+
+// Feature matrix: catalog + plan entitlements + per-owner overrides
+router.get('/features', listFeatureCatalog);
+router.post('/features', upsertFeature);
+router.get('/feature-matrix', getFeatureMatrix);
+router.put('/plans/:id/features', updatePlanFeatures);
 
 router.get('/tickets', listTickets);
 router.post('/tickets', createTicket);

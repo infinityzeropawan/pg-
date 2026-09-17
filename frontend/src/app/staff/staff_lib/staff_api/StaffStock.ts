@@ -2,6 +2,7 @@
 import { db } from '@/lib/storage/db';
 import { STORAGE_KEYS } from '@/lib/storage/keys';
 import { createId } from '@/lib/utils/id';
+import { apiUrl } from '@/lib/config/apiBase';
 
 import type { BaseEntity } from '@/lib/types/contract';
 
@@ -20,9 +21,8 @@ export interface StockItem extends BaseEntity {
 export const stockApi = {
   getByPropertyAsync: async (propertyId: string): Promise<StockItem[]> => {
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api/v1';
-      const res = await fetch(`${API_URL}/staff/stock`, {
+      const token = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEYS.AUTH_TOKEN) : null;
+      const res = await fetch(apiUrl('/api/v1/staff/stock'), {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();

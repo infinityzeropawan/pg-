@@ -17,14 +17,15 @@ export function StaffFirstLoginMain() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
       const session = getSession();
       if(!session) return;
-      api.changePassword(session.id, newPassword);
+      // Confirmed server-side before the local session flag is cleared.
+      await api.changePassword(session.id, newPassword);
       session.mustChangePassword = false;
       setSession(session);
       router.push('/staff/dashboard');

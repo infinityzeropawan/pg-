@@ -13,7 +13,7 @@ interface ManagerGateLogsFormProps {
     reason?: string,
     destination?: string,
     expectedReturnTime?: string
-  ) => void;
+  ) => Promise<boolean>;
 }
 
 const COMMON_REASONS = [
@@ -29,7 +29,7 @@ const COMMON_REASONS = [
 ];
 
 export function ManagerGateLogsForm({ students = [], handleAdd }: ManagerGateLogsFormProps) {
-  const { register, handleSubmit, watch, reset, formState: { errors } } = useForm<GateLogFormData>({
+  const { register, handleSubmit, watch, reset, formState: { errors, isSubmitting } } = useForm<GateLogFormData>({
     resolver: zodResolver(GateLogFormSchema) as any,
     defaultValues: { 
       studentId: '', 
@@ -43,8 +43,8 @@ export function ManagerGateLogsForm({ students = [], handleAdd }: ManagerGateLog
 
   const watchedType = watch('type');
 
-  const onSubmit = (data: GateLogFormData) => {
-    handleAdd(
+  const onSubmit = async (data: GateLogFormData) => {
+    const saved = await handleAdd(
       data.studentId, 
       data.type, 
       data.isLate, 
@@ -52,6 +52,7 @@ export function ManagerGateLogsForm({ students = [], handleAdd }: ManagerGateLog
       data.destination, 
       data.expectedReturnTime
     );
+    if (!saved) return;
     reset({ 
       studentId: '', 
       type: 'entry', 
@@ -150,7 +151,8 @@ export function ManagerGateLogsForm({ students = [], handleAdd }: ManagerGateLog
         )}
 
         <button 
-          type="submit" 
+          type="submit"
+          disabled={isSubmitting}
           className="w-full py-2.5 bg-primary text-white rounded-lg text-xs font-bold uppercase tracking-wider mt-2 hover:bg-primary-hover active:scale-95 transition-all shadow-sm cursor-pointer"
         >
           Record {watchedType === 'entry' ? 'Check-In' : 'Check-Out'}

@@ -1,257 +1,206 @@
 'use client';
 
-import React, { useRef } from 'react';
-import { Printer, X, ShieldCheck, Clock, MapPin, Phone, AlertCircle, QrCode } from 'lucide-react';
+// RESPONSIBILITY: Printable gate QR poster for a property.
+//
+// The QR encodes `<origin>/student/attendance?gate=<signed-token>`, so scanning it
+// with any phone camera opens the student app with the property token attached. The
+// backend verifies the signature *and* that the resident actually lives in that
+// property before recording any attendance.
+//
+// BUG HISTORY: this component used to draw `generateQrMatrix()` — a deterministic
+// sine/hash noise grid with no QR version, no format information and no error
+// correction. The payload was never encoded, so no scanner could ever read the
+// printed poster; the curfew and phone number were hardcoded fallbacks too.
+
+import { useCallback, useEffect, useState } from 'react';
+import {
+  AlertCircle,
+  Clock,
+  Loader2,
+  MapPin,
+  Phone,
+  Printer,
+  QrCode,
+  RefreshCw,
+  ShieldCheck,
+  X,
+} from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
+
+import { buildGateScanUrl, gateQrApi, type GateQrInfo } from '@/components/qr/gateQr';
 
 interface GateQrPosterModalProps {
   isOpen: boolean;
   onClose: () => void;
-  property: {
-    id: string;
-    name: string;
-    address?: string;
-    curfewTime?: string;
-    contactPhone?: string;
-    managerName?: string;
-  };
+  propertyId: string;
 }
 
-// Generate a deterministic 25x25 QR code grid matrix from text string for crisp vector SVG rendering
-function generateQrMatrix(text: string): boolean[][] {
-  const size = 25;
-  const matrix: boolean[][] = Array.from({ length: size }, () => Array(size).fill(false));
+export function GateQrPosterModal({ isOpen, onClose, propertyId }: GateQrPosterModalProps) {
+  const [info, setInfo] = useState<GateQrInfo | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const setCell = (r: number, c: number, val: boolean) => {
-    if (r >= 0 && r < size && c >= 0 && c < size) {
-      const row = matrix[r];
-      if (row) row[c] = val;
+  const load = useCallback(async () => {
+    if (!propertyId) {
+      setError('Select a property before printing a gate QR poster.');
+      return;
     }
-  };
-
-  // Helper to draw position detection patterns (7x7 squares at corners)
-  const drawFinder = (startX: number, startY: number) => {
-    for (let r = 0; r < 7; r++) {
-      for (let c = 0; c < 7; c++) {
-        if (
-          r === 0 || r === 6 || c === 0 || c === 6 ||
-          (r >= 2 && r <= 4 && c >= 2 && c <= 4)
-        ) {
-          setCell(startY + r, startX + c, true);
-        } else {
-          setCell(startY + r, startX + c, false);
-        }
-      }
+    setLoading(true);
+    setError(null);
+    try {
+      setInfo(await gateQrApi.fetch(propertyId));
+    } catch (e) {
+      setInfo(null);
+      setError(e instanceof Error ? e.message : 'Could not generate the gate QR poster.');
+    } finally {
+      setLoading(false);
     }
-  };
+  }, [propertyId]);
 
-  // Top-left, Top-right, Bottom-left finder patterns
-  drawFinder(0, 0);
-  drawFinder(size - 7, 0);
-  drawFinder(0, size - 7);
-
-  // Timing patterns
-  for (let i = 8; i < size - 8; i++) {
-    setCell(6, i, i % 2 === 0);
-    setCell(i, 6, i % 2 === 0);
-  }
-
-  // Alignment pattern around bottom-right
-  const alignX = size - 7;
-  const alignY = size - 7;
-  for (let r = -2; r <= 2; r++) {
-    for (let c = -2; c <= 2; c++) {
-      if (Math.abs(r) === 2 || Math.abs(c) === 2 || (r === 0 && c === 0)) {
-        setCell(alignY + r, alignX + c, true);
-      }
-    }
-  }
-
-  // Deterministic hash fill for data area
-  let hash = 0;
-  for (let i = 0; i < text.length; i++) {
-    hash = (hash << 5) - hash + text.charCodeAt(i);
-    hash |= 0;
-  }
-
-  let bitIdx = 0;
-  for (let r = 0; r < size; r++) {
-    for (let c = 0; c < size; c++) {
-      // Skip finder zones
-      const inTopLeft = r < 8 && c < 8;
-      const inTopRight = r < 8 && c >= size - 8;
-      const inBottomLeft = r >= size - 8 && c < 8;
-      const inTiming = r === 6 || c === 6;
-      const inAlign = r >= size - 9 && r <= size - 5 && c >= size - 9 && c <= size - 5;
-
-      if (!inTopLeft && !inTopRight && !inBottomLeft && !inTiming && !inAlign) {
-        const pseudoRand = Math.sin(hash + bitIdx * 12.9898) * 43758.5453;
-        setCell(r, c, (pseudoRand - Math.floor(pseudoRand)) > 0.45);
-        bitIdx++;
-      }
-    }
-  }
-
-  return matrix;
-}
-
-export function GateQrPosterModal({ isOpen, onClose, property }: GateQrPosterModalProps) {
-  const printRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (isOpen) void load();
+  }, [isOpen, load]);
 
   if (!isOpen) return null;
 
-  const qrPayload = `SPG-GATE:${property.id}:${encodeURIComponent(property.name)}`;
-  const matrix = generateQrMatrix(qrPayload);
-  const size = matrix.length;
-  const cellSize = 10;
-  const svgSize = size * cellSize;
-
-  const handlePrint = () => {
-    window.print();
-  };
+  const scanUrl = info ? buildGateScanUrl(info) : '';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm overflow-y-auto">
-      {/* Styles for clean printing */}
-      <style jsx global>{`
-        @media print {
-          body * {
-            visibility: hidden;
-          }
-          #printable-qr-poster, #printable-qr-poster * {
-            visibility: visible;
-          }
-          #printable-qr-poster {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100vw;
-            height: 100vh;
-            margin: 0;
-            padding: 24px;
-            background: white !important;
-            color: black !important;
-            box-shadow: none !important;
-            border: 2px solid #000 !important;
-          }
-          .no-print {
-            display: none !important;
-          }
-        }
-      `}</style>
+      <div className="relative bg-card border border-border rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden my-auto">
 
-      <div className="relative bg-card border border-border rounded-[var(--radius-xl,16px)] max-w-2xl w-full shadow-2xl my-8 overflow-hidden">
-        
-        {/* Modal Header */}
-        <div className="no-print flex items-center justify-between px-6 py-4 border-b border-border bg-page">
+        {/* Modal Top Bar */}
+        <div className="no-print flex items-center justify-between px-5 py-3.5 border-b border-border bg-page">
           <div className="flex items-center gap-2">
             <QrCode className="w-5 h-5 text-primary" />
-            <h2 className="font-bold text-lg text-primary">Print Gate Attendance QR Poster</h2>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handlePrint}
-              className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-sm font-semibold rounded-lg hover:bg-primary-hover transition-colors shadow-sm cursor-pointer"
-            >
-              <Printer className="w-4 h-4" />
-              Print / Save PDF
-            </button>
-            <button
-              onClick={onClose}
-              className="p-2 text-secondary hover:text-primary rounded-lg hover:bg-input transition-colors cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Poster Container */}
-        <div className="p-6 bg-slate-100 dark:bg-zinc-950 flex justify-center">
-          <div
-            id="printable-qr-poster"
-            ref={printRef}
-            className="w-full max-w-[480px] bg-white text-slate-900 rounded-2xl p-8 shadow-xl border-4 border-slate-900 flex flex-col items-center text-center relative"
-          >
-            {/* Header Badge */}
-            <div className="bg-slate-900 text-white text-xs font-black uppercase tracking-widest px-4 py-1.5 rounded-full mb-3 flex items-center gap-1.5">
-              <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              Smart Gate Attendance
-            </div>
-
-            {/* Property Name */}
-            <h1 className="text-2xl font-black text-slate-950 uppercase tracking-tight mb-1">
-              {property.name}
-            </h1>
-            <p className="text-xs text-slate-600 font-medium flex items-center justify-center gap-1 mb-6">
-              <MapPin className="w-3.5 h-3.5 text-slate-500" />
-              {property.address || 'Main Entrance / Reception Gate'}
-            </p>
-
-            {/* QR Code Container */}
-            <div className="bg-white p-5 rounded-2xl border-2 border-slate-900 shadow-md mb-6 relative group">
-              <svg
-                width={200}
-                height={200}
-                viewBox={`0 0 ${svgSize} ${svgSize}`}
-                className="w-48 h-48 sm:w-56 sm:h-56"
-              >
-                {matrix.map((row, r) =>
-                  row.map((filled, c) =>
-                    filled ? (
-                      <rect
-                        key={`${r}-${c}`}
-                        x={c * cellSize}
-                        y={r * cellSize}
-                        width={cellSize}
-                        height={cellSize}
-                        fill="#09090b"
-                      />
-                    ) : null
-                  )
-                )}
-              </svg>
-              <div className="mt-2 text-[10px] font-mono text-slate-500 tracking-wider">
-                ID: {property.id}
-              </div>
-            </div>
-
-            {/* Step by Step Instructions */}
-            <div className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 text-left mb-5">
-              <div className="text-xs font-bold uppercase text-slate-800 tracking-wider mb-2 flex items-center gap-1">
-                <Clock className="w-3.5 h-3.5 text-blue-600" /> Instructions for Residents:
-              </div>
-              <ol className="text-xs text-slate-700 space-y-1.5 font-medium list-decimal list-inside">
-                <li>Open your <strong>PG Student App</strong>.</li>
-                <li>Go to <strong>Attendance</strong> and tap <strong>Scan Gate QR</strong>.</li>
-                <li>Select <strong>Check-In</strong> or <strong>Check-Out</strong> with reason.</li>
-                <li>Attendance is recorded & parents are notified instantly.</li>
-              </ol>
-            </div>
-
-            {/* Curfew & Helpline Footer */}
-            <div className="w-full grid grid-cols-2 gap-2 border-t border-slate-200 pt-3 text-[11px] text-slate-600">
-              <div className="flex items-center gap-1 text-amber-700 font-bold">
-                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                <span>Curfew: {property.curfewTime || '10:00 PM'}</span>
-              </div>
-              <div className="flex items-center justify-end gap-1 text-slate-700 font-medium">
-                <Phone className="w-3.5 h-3.5 shrink-0" />
-                <span>{property.contactPhone || 'Guard: +91 98765 43210'}</span>
-              </div>
+            <div>
+              <h3 className="text-sm font-black uppercase tracking-wider text-primary">Gate Attendance QR Poster</h3>
+              <p className="text-[10px] text-secondary">
+                Print, laminate and paste it at the entrance — residents scan it to mark attendance.
+              </p>
             </div>
           </div>
-        </div>
-
-        {/* Modal Footer Note */}
-        <div className="no-print p-4 bg-page border-t border-border flex items-center justify-between text-xs text-secondary">
-          <span>Tip: Print and laminate this sheet, then paste it at the main entrance gate or reception desk.</span>
           <button
             onClick={onClose}
-            className="px-4 py-2 border border-border rounded-lg hover:bg-input transition-colors cursor-pointer"
+            aria-label="Close"
+            className="p-1.5 text-secondary hover:text-primary rounded-lg hover:bg-input transition-colors cursor-pointer"
           >
-            Close
+            <X className="w-5 h-5" />
           </button>
         </div>
 
+        {loading && (
+          <div className="p-10 flex flex-col items-center gap-3 text-secondary">
+            <Loader2 className="w-6 h-6 animate-spin" />
+            <p className="text-xs font-semibold">Generating a signed poster…</p>
+          </div>
+        )}
+
+        {!loading && error && (
+          <div className="p-8 text-center space-y-4">
+            <div className="w-12 h-12 rounded-full bg-danger/10 text-danger flex items-center justify-center mx-auto">
+              <AlertCircle className="w-6 h-6" />
+            </div>
+            <p className="text-sm font-semibold text-primary">{error}</p>
+            <button
+              onClick={() => void load()}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white text-xs font-bold rounded-xl hover:bg-primary-hover transition-colors cursor-pointer"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Try again
+            </button>
+          </div>
+        )}
+
+        {!loading && !error && info && (
+          <div className="p-5 bg-white">
+            <div
+              id="gate-qr-print-sheet"
+              className="bg-white text-slate-900 border-2 border-slate-900 rounded-2xl p-6 text-center"
+            >
+              <div className="flex items-center justify-center gap-1.5 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                Gate Attendance
+              </div>
+
+              <h1 className="text-2xl font-black text-slate-950 uppercase tracking-tight mt-2 mb-1">
+                {info.propertyName}
+              </h1>
+              <p className="text-xs text-slate-600 font-medium flex items-center justify-center gap-1 mb-6">
+                <MapPin className="w-3.5 h-3.5 text-slate-500" />
+                {info.address || 'Main Entrance / Reception Gate'}
+              </p>
+
+              <div className="bg-white p-4 rounded-2xl border-2 border-slate-900 inline-block">
+                <QRCodeSVG
+                  value={scanUrl}
+                  size={200}
+                  level="M"
+                  marginSize={4}
+                  bgColor="#ffffff"
+                  fgColor="#09090b"
+                  title={`Gate attendance QR code for ${info.propertyName}`}
+                />
+              </div>
+              <div className="mt-3 text-[10px] font-mono text-slate-500 tracking-wider break-all">
+                Property ID: {info.propertyId}
+              </div>
+              {/* Step by step instructions */}
+              <div className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 text-left mt-6">
+                <div className="text-xs font-bold uppercase text-slate-800 tracking-wider mb-2 flex items-center gap-1">
+                  <Clock className="w-3.5 h-3.5 text-blue-600" /> How to mark attendance:
+                </div>
+                <ol className="text-xs text-slate-700 space-y-1.5 font-medium list-decimal list-inside">
+                  <li>
+                    Open the <strong>phone camera</strong> and scan this QR, <em>or</em> open the PG Student app →{' '}
+                    <strong>Attendance</strong> → <strong>Scan Gate QR</strong>.
+                  </li>
+                  <li>
+                    Choose <strong>Check-In</strong> (entering PG) or <strong>Check-Out</strong> with a reason.
+                  </li>
+                  <li>Tap confirm — attendance is recorded and your parents are notified instantly.</li>
+                </ol>
+                <p className="text-[10px] text-slate-500 mt-2">
+                  The code is verified against this property, so a poster from another PG will not work.
+                </p>
+              </div>
+
+              {/* Curfew & helpline footer — real property values */}
+              <div className="w-full grid grid-cols-2 gap-2 border-t border-slate-200 pt-3 mt-5 text-[11px] text-slate-600">
+                <div className="flex items-center gap-1 text-amber-700 font-bold">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>Curfew: {info.curfewTime || '22:00'}</span>
+                </div>
+                <div className="flex items-center justify-end gap-1 text-slate-700 font-medium">
+                  <Phone className="w-3.5 h-3.5 shrink-0" />
+                  <span>{info.contactPhone || 'Reception'}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal footer */}
+            <div className="no-print bg-page border-t border-border -mx-5 -mb-5 mt-5 p-4 flex items-center justify-between gap-3">
+              <span className="text-xs text-secondary">
+                Tip: print at A4, laminate it, and paste it at the main gate or reception desk.
+              </span>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={onClose}
+                  className="px-4 py-2 border border-border rounded-lg text-xs font-bold hover:bg-input transition-colors cursor-pointer"
+                >
+                  Close
+                </button>
+                <button
+                  onClick={() => window.print()}
+                  className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-xs font-bold uppercase tracking-wider rounded-lg hover:bg-primary-hover transition-colors cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  Print
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
-import type { BaseEntity } from '@/lib/types/models';
+import { apiUrl } from '@/lib/config/apiBase';
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api/v1';
+import type { BaseEntity } from '@/lib/types/models';
 
 export interface OwnerRequest extends BaseEntity {
   name: string;
@@ -21,7 +21,7 @@ export interface OwnerRequest extends BaseEntity {
 export const ownerRequestsApi = {
   async create(data: Omit<OwnerRequest, 'id' | 'createdAt' | 'updatedAt' | 'createdBy' | 'updatedBy' | 'isDeleted' | 'status'>) {
     try {
-      const res = await fetch(`${BACKEND_URL}/superadmin/owner-requests/public`, {
+      const res = await fetch(apiUrl('/api/v1/superadmin/owner-requests/public'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -46,7 +46,7 @@ export const ownerRequestsApi = {
     try {
       const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
       if (token) {
-        const res = await fetch(`${BACKEND_URL}/superadmin/owner-requests`, {
+        const res = await fetch(apiUrl('/api/v1/superadmin/owner-requests'), {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         const resData = await res.json();
@@ -79,7 +79,7 @@ export const ownerRequestsApi = {
       const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
       if (token) {
         const backendStatus = status.toUpperCase() === 'HOLD' ? 'UNDER_REVIEW' : status.toUpperCase();
-        const res = await fetch(`${BACKEND_URL}/superadmin/owner-requests/${id}/status`, {
+        const res = await fetch(apiUrl(`/api/v1/superadmin/owner-requests/${id}/status`), {
           method: 'PATCH',
           headers: {
             'Content-Type': 'application/json',

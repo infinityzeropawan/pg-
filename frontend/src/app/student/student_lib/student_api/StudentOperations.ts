@@ -144,10 +144,16 @@ export const studentOperationsApi = {
   getSOSHistory: async () => (await apiGet<any[]>('/api/v1/student/sos/history')) ?? [],
 
   // ── Gate Attendance ─────────────────────────────────────────
-  recordGateAttendance: async (data: { type: string; reason?: string; destination?: string; expectedReturnTime?: string }) =>
-    apiPost('/api/v1/student/gate-attendance', data),
-  scanGateAttendance: async (params: { type: string; reason?: string; destination?: string; expectedReturnTime?: string }) =>
-    apiPost('/api/v1/student/gate-attendance', params),
+  // `gateToken` is the signed token read off the printed gate poster; the backend
+  // rejects a movement without it, so attendance can only be marked by a real scan.
+  recordGateAttendance: async (data: { type: string; reason?: string; destination?: string; expectedReturnTime?: string; gateToken?: string | null }) =>
+    apiPost('/api/v1/student/gate-attendance', {
+      type: data.type,
+      reason: data.reason,
+      destination: data.destination,
+      expectedReturnTime: data.expectedReturnTime,
+      gateToken: data.gateToken ?? undefined,
+    }),
   getGateLogs: async (_studentId?: string) => (await apiGet<any[]>('/api/v1/student/gate-attendance')) ?? [],
 
   // ── Attendance Records ──────────────────────────────────────

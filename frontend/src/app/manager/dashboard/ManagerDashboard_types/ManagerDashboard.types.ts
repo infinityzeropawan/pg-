@@ -1,5 +1,26 @@
-import type { StockRequest } from '@/app/staff/staff_lib/staff_api/StaffStockRequests';
-import type { MealStatus } from '@/app/manager/manager_lib/manager_api/ManagerMeals';
+export interface ManagerRecentStay {
+  id: string;
+  tenantName: string;
+  propertyName: string;
+  roomNumber: string;
+  bedNumber: string;
+  status: string;
+}
+
+export interface ManagerRecentGateLog {
+  id?: string;
+  visitorName?: string;
+  entryType?: string;
+  createdAt?: string;
+}
+
+export interface ManagerLatestEnquiry {
+  name: string;
+  date: string;
+  status: string;
+  property: string;
+}
+
 export interface ManagerDashboardStats {
   // Row 1
   todayCheckins: number;
@@ -19,17 +40,22 @@ export interface ManagerDashboardStats {
   activeStudents: number;
   vacantBeds: number;
   activeSos: number;
+  staffPresent: number;
+  pendingRent: number;
+  // Real activity feeds supplied by the backend dashboard endpoint
+  recentStays: ManagerRecentStay[];
+  recentGateLogs: ManagerRecentGateLog[];
+  latestEnquiries: ManagerLatestEnquiry[];
 }
 export interface ManagerDashboardData {
   stats: ManagerDashboardStats | null;
-  kitchenRequests: StockRequest[];
-  readyMeals: MealStatus[];
   isPresent: boolean;
+  /** Populated when the dashboard request fails, so failures are never masked. */
+  error: string | null;
   loading: boolean;
 }
 export interface UseManagerDashboardReturn extends ManagerDashboardData {
-  handleAnnounceMeal: (mealType: 'Breakfast' | 'Lunch' | 'Dinner') => void;
-  handleMarkPresent: () => void;
+  handleMarkPresent: () => Promise<void>;
   selectedPropertyId: string | null;
   ctxLoading: boolean;
   properties: unknown[];

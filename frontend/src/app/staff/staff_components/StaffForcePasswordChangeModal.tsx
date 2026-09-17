@@ -21,7 +21,7 @@ export function StaffForcePasswordChangeModal({ user, onSuccess }: StaffForcePas
 
   if (!user || !user.mustChangePassword) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -37,15 +37,17 @@ export function StaffForcePasswordChangeModal({ user, onSuccess }: StaffForcePas
 
     setLoading(true);
     try {
-      api.changePassword(user.id, password);
-      
-      // Update session to reflect password changed
+      // Persists the new bcrypt hash server-side and clears the DB's
+      // mustChangePassword flag. Throws when the request fails, so the session
+      // flag below is only updated after a confirmed server-side change.
+      await api.changePassword(user.id, password);
+
       const currentSession = getSession();
       if (currentSession) {
         currentSession.mustChangePassword = false;
         localStorage.setItem('spg_current_session', JSON.stringify(currentSession));
       }
-      
+
       onSuccess();
     } catch (err: any) {
       setError((err as any).message || 'Failed to change password');

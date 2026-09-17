@@ -28,6 +28,12 @@ export const ENV = {
   JWT_REFRESH_SECRET: requiredSecret('JWT_REFRESH_SECRET', 'dev_only_smart_pg_refresh_secret'),
   JWT_REFRESH_EXPIRES_IN: process.env.JWT_REFRESH_EXPIRES_IN || '30d',
   /**
+   * Signs the tokens embedded in the printed gate QR posters. Rotating this value
+   * invalidates every poster that has already been printed, so keep it stable in
+   * production and set it per environment.
+   */
+  GATE_QR_SECRET: requiredSecret('GATE_QR_SECRET', 'dev_only_smart_pg_gate_qr_secret'),
+  /**
    * Comma-separated list of origins allowed to call the API.
    * Empty in development -> permissive (for localhost tooling).
    * MUST be set in production, e.g. 'https://app.example.com,https://www.example.com'.

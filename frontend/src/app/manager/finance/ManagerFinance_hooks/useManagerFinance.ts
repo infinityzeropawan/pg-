@@ -1,6 +1,7 @@
 // @ts-nocheck
 // DATA FLOW: [AI_TODO: Document data flow direction for useManagerFinance.ts]
 import { useState, useEffect } from 'react';
+import { toast } from 'sonner';
 
 import { useManagerUrlPagination } from '@/app/manager/manager_components/manager_hooks/useManagerUrlPagination';
 // [DATA HOOK] useManagerFinance
@@ -26,8 +27,9 @@ export function useManagerFinance(): UseManagerFinanceReturn {
   const loadData = () => {
     if (!selectedPropertyId) return;
     setLoading(true);
-    // Auto seed invoices for current month
-    api.finance.seedMonthlyInvoices(selectedPropertyId);
+    // NOTE: the browser-side invoice generator (seedMonthlyInvoices) was removed.
+    // It created invoices inside localStorage, so every manager saw fictitious
+    // billing data on their own device only.
     const allInvoices = api.finance.listInvoices(selectedPropertyId);
     const students = api.managerOperations.listStudents(selectedPropertyId) || [];
     // Map student names
@@ -40,8 +42,10 @@ export function useManagerFinance(): UseManagerFinanceReturn {
       };    }).sort((a, b) => new Date((b as Record<string, unknown>).createdAt).getTime() - new Date(a.createdAt).getTime());
 
     setInvoices(enrichedInvoices);
-    const dashStats = api.managerDashboard.getStats(selectedPropertyId);
-    setStats(dashStats?.rentStats || null);
+    // Previously read from a deleted localStorage aggregation. Rent KPIs now come
+    // from the backend dashboard endpoint; the finance-summary card must be wired
+    // to /admin/finance/summary in a follow-up backend task.
+    setStats(null);
     setLoading(false);
   };
   // Reload invoice data when property changes or context finishes loading.
@@ -61,7 +65,10 @@ export function useManagerFinance(): UseManagerFinanceReturn {
     loadData();
   };
   const handleSendReminder = (studentName: string) => {
-    alert(`Rent reminder sent to ${studentName}!`);
+    // There is no backend endpoint for rent reminders yet, so we must not claim one
+    // was delivered — the previous version showed a success alert without sending
+    // anything and without contacting the backend.
+    toast.info(`Reminders are not enabled yet. Nothing was sent to ${studentName}.`);
   };
   const itemsPerPage = 10;
   // Reset to page 1 whenever filter or property changes to avoid empty pages.

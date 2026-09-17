@@ -1,7 +1,6 @@
-import { db } from '@/lib/storage/db';
 import { STORAGE_KEYS } from '@/lib/storage/keys';
 import { apiUrl } from '@/lib/config/apiBase';
-import type { User, SessionUser, Role } from '@/lib/types/models';
+import type { SessionUser, Role } from '@/lib/types/models';
 
 export const authApi = {
   async login({ email, password, expectedRole }: { email: string; password?: string; expectedRole?: Role }) {
@@ -51,37 +50,10 @@ export const authApi = {
 
       return sessionUser;
     } catch (backendErr: any) {
-      console.warn('Backend login notice:', backendErr.message);
-
-      // LocalStorage Fallback for offline dev
-      const users = db.getAll<User>(STORAGE_KEYS.USERS);
-      const user = users.find(u => 
-        u.email && 
-        u.email.toLowerCase().trim() === email.toLowerCase().trim() && 
-        !u.isDeleted && 
-        u.status === 'Active' && 
-        (!expectedRole || u.role.toLowerCase() === expectedRole.toLowerCase())
-      );
-      
-      if (user) {
-        if (password && user.password !== password) throw new Error('Invalid password');
-        const sessionUser: SessionUser = {
-          id: user.id,
-          role: user.role.toLowerCase() as Role,
-          name: user.name,
-          email: user.email,
-          ownerId: user.ownerId,
-          mustChangePassword: user.mustChangePassword,
-        };
-
-        if (typeof window !== 'undefined') {
-          localStorage.setItem(STORAGE_KEYS.CURRENT_SESSION, JSON.stringify(sessionUser));
-          localStorage.setItem('spg_current_session', JSON.stringify(sessionUser));
-        }
-
-        return sessionUser;
-      }
-
+      // Authentication must go through the backend. The previous localStorage
+      // credential fallback compared plaintext passwords and allowed an offline
+      // auth bypass against the cached `spg_users` list, so it was removed.
+      console.warn('Backend login failed:', backendErr.message);
       throw new Error(backendErr.message || 'Authentication failed');
     }
   },
@@ -107,22 +79,42 @@ export const authApi = {
     }
   },
 
-  async changePassword(userId: string, newPassword: string) {
-    const users = db.getAll<User>(STORAGE_KEYS.USERS);
-    const userIndex = users.findIndex(u => u.id === userId);
-    
-    if (userIndex !== -1) {
-      db.update(STORAGE_KEYS.USERS, userId, { password: newPassword, mustChangePassword: false });
-      
-      const currentSession = this.currentUser();
-      if (currentSession && currentSession.id === userId) {
-        currentSession.mustChangePassword = false;
-        localStorage.setItem(STORAGE_KEYS.CURRENT_SESSION, JSON.stringify(currentSession));
-        localStorage.setItem('spg_current_session', JSON.stringify(currentSession));
-      }
-      return true;
+  /**
+   * Changes the password through the backend so the bcrypt hash in Postgres is
+   * actually updated. This replaces the previous localStorage-only implementation,
+   * which reported success even when the user was not found and never persisted
+   * anything — leaving the original/temporary password valid indefinitely.
+   */
+  async changePassword(_userId: string, newPassword: string, oldPassword?: string) {
+    const token = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEYS.AUTH_TOKEN) : null;
+    const res = await fetch(apiUrl('/api/v1/auth/change-password'), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ newPassword, oldPassword }),
+    });
+
+    const text = await res.text();
+    let json: any = {};
+    try {
+      json = JSON.parse(text);
+    } catch {
+      throw new Error(text || 'Failed to change password');
     }
-    
-    return true;
+    if (!res.ok || !json.success) {
+      throw new Error(json.message || 'Failed to change password');
+    }
+
+    // Only reflect the change locally once the server has confirmed it.
+    const currentSession = this.currentUser();
+    if (currentSession) {
+      currentSession.mustChangePassword = false;
+      localStorage.setItem(STORAGE_KEYS.CURRENT_SESSION, JSON.stringify(currentSession));
+      localStorage.setItem('spg_current_session', JSON.stringify(currentSession));
+    }
+
+    return json.data;
   }
 };

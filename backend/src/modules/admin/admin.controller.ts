@@ -1,6 +1,6 @@
 import { Response } from 'express';
 import { AuthRequest } from '../../middleware/auth.middleware';
-import { AdminService } from './admin.service';
+import { AdminService, AdminRequestError } from './admin.service';
 import { sendSuccess, sendError } from '../../utils/response';
 import { PropertyType, RoomType, BedStatus, ComplaintStatus, UserRole, ComplaintPriority } from '@prisma/client';
 
@@ -127,50 +127,91 @@ export const deleteProperty = async (req: AuthRequest, res: Response) => {
 // ==========================================
 // ROOMS & BEDS
 // ==========================================
+const fail = (res: Response, error: unknown, fallback: string) => {
+  if (error instanceof AdminRequestError) return sendError(res, error.message, error.statusCode);
+  const message = error instanceof Error ? error.message : fallback;
+  return sendError(res, message || fallback, 500, error);
+};
+
+/** Builds the property-scoping actor from the verified JWT payload. */
+const actorFrom = (req: AuthRequest) => ({
+  userId: req.user?.userId || '',
+  ownerId: req.user?.ownerId || undefined,
+  role: req.user?.role || '',
+});
+
 export const listRooms = async (req: AuthRequest, res: Response) => {
   try {
     const propertyId = String(req.params.propertyId);
     if (!propertyId) return sendError(res, 'Property ID required', 400);
 
-    const data = await AdminService.listRooms(propertyId);
+    const data = await AdminService.listRooms(propertyId, actorFrom(req));
     return sendSuccess(res, 'Rooms fetched successfully', data);
-  } catch (error: any) {
-    return sendError(res, error.message || 'Failed to list rooms', 500, error);
+  } catch (error) {
+    return fail(res, error, 'Failed to list rooms');
+  }
+};
+
+export const getRoom = async (req: AuthRequest, res: Response) => {
+  try {
+    const data = await AdminService.getRoom(String(req.params.id), actorFrom(req));
+    return sendSuccess(res, 'Room fetched successfully', data);
+  } catch (error) {
+    return fail(res, error, 'Failed to fetch room');
   }
 };
 
 export const createRoom = async (req: AuthRequest, res: Response) => {
   try {
-    const { floorId, roomNumber, type, monthlyRent, bedCount } = req.body;
-    if (!floorId || !roomNumber) {
-      return sendError(res, 'Floor ID and room number are required', 400);
-    }
-
+    const body = req.body || {};
+    // `sharingType` / `baseRentMonthly` are still accepted so older callers keep working.
     const room = await AdminService.createRoom({
-      propertyId: req.body.propertyId || req.body.floorId,
-      floorNumber: Number(req.body.floorNumber) || 1,
-      roomNumber,
-      type: (type as RoomType) || RoomType.DOUBLE_SHARING,
-      monthlyRent: Number(monthlyRent) || 8500,
-      bedCount: Number(bedCount) || 2,
-    });
+      propertyId: typeof body.propertyId === 'string' ? body.propertyId.trim() : '',
+      roomNumber: typeof body.roomNumber === 'string' ? body.roomNumber.trim() : String(body.roomNumber ?? ''),
+      floorNumber: Number(body.floorNumber ?? 1),
+      bedCount: Number(body.bedCount ?? body.sharingType),
+      monthlyRent: Number(body.monthlyRent ?? body.baseRentMonthly ?? body.rentPerBed),
+    }, actorFrom(req));
 
     return sendSuccess(res, 'Room created successfully', room, 201);
-  } catch (error: any) {
-    return sendError(res, error.message || 'Failed to create room', 500, error);
+  } catch (error) {
+    return fail(res, error, 'Failed to create room');
+  }
+};
+
+export const deleteRoom = async (req: AuthRequest, res: Response) => {
+  try {
+    const data = await AdminService.deleteRoom(String(req.params.id), actorFrom(req));
+    return sendSuccess(res, 'Room deleted successfully', data);
+  } catch (error) {
+    return fail(res, error, 'Failed to delete room');
+  }
+};
+
+export const updateRoomMaintenance = async (req: AuthRequest, res: Response) => {
+  try {
+    const { isMaintenance } = req.body || {};
+    if (typeof isMaintenance !== 'boolean') {
+      return sendError(res, 'isMaintenance must be true or false', 400);
+    }
+
+    const data = await AdminService.setRoomMaintenance(String(req.params.id), isMaintenance, actorFrom(req));
+    return sendSuccess(res, 'Room maintenance updated successfully', data);
+  } catch (error) {
+    return fail(res, error, 'Failed to update room maintenance');
   }
 };
 
 export const updateBedStatus = async (req: AuthRequest, res: Response) => {
   try {
     const bedId = String(req.params.bedId);
-    const { status } = req.body;
+    const { status } = req.body || {};
     if (!bedId || !status) return sendError(res, 'Bed ID and status required', 400);
 
-    const updated = await AdminService.updateBedStatus(bedId, status as BedStatus);
+    const updated = await AdminService.updateBedStatus(bedId, status as BedStatus, actorFrom(req));
     return sendSuccess(res, 'Bed status updated successfully', updated);
-  } catch (error: any) {
-    return sendError(res, error.message || 'Failed to update bed status', 500, error);
+  } catch (error) {
+    return fail(res, error, 'Failed to update bed status');
   }
 };
 
@@ -311,7 +352,8 @@ export const listGateLogs = async (req: AuthRequest, res: Response) => {
     const propertyId = String(req.params.propertyId);
     if (!propertyId) return sendError(res, 'Property ID required', 400);
 
-    const data = await AdminService.listGateLogs(propertyId);
+    const ownerId = req.user?.ownerId || req.user?.userId || '';
+    const data = await AdminService.listGateLogs(propertyId, ownerId, req.user?.role === 'MANAGER' ? req.user.userId : undefined);
     return sendSuccess(res, 'Gate logs fetched successfully', data);
   } catch (error: any) {
     return sendError(res, error.message || 'Failed to list gate logs', 500, error);
@@ -325,16 +367,31 @@ export const addGateLog = async (req: AuthRequest, res: Response) => {
       return sendError(res, 'Property ID, student ID, and type are required', 400);
     }
 
-    const log = await AdminService.addGateLog({
-      propertyId,
-      userId: studentId,
-      entryType: type.toUpperCase() === 'EXIT' ? 'EXIT' : 'ENTRY',
-      passCode: req.body.passCode,
-    });
+    const ownerId = req.user?.ownerId || req.user?.userId || '';
+    const log = await AdminService.addGateLog(ownerId, req.user!.userId, {
+      propertyId, studentId, type,
+      reason, destination, expectedReturnTime, isLate,
+    }, req.user?.role === 'MANAGER' ? req.user.userId : undefined);
 
     return sendSuccess(res, 'Gate log recorded successfully', log, 201);
   } catch (error: any) {
     return sendError(res, error.message || 'Failed to record gate log', 500, error);
+  }
+};
+
+/**
+ * Signed token + real property details for the printable gate QR poster.
+ * Available to the OWNER and to the MANAGER assigned to the property.
+ */
+export const getGateQr = async (req: AuthRequest, res: Response) => {
+  try {
+    const propertyId = String(req.params.propertyId);
+    if (!propertyId) return sendError(res, 'Property ID required', 400);
+
+    const data = await AdminService.getPropertyGateQr(propertyId, actorFrom(req));
+    return sendSuccess(res, 'Gate QR fetched successfully', data);
+  } catch (error) {
+    return fail(res, error, 'Failed to fetch gate QR');
   }
 };
 
@@ -552,7 +609,10 @@ export const listStaffAttendance = async (req: AuthRequest, res: Response) => {
   try {
     const ownerId = req.user?.ownerId || req.user?.userId || '';
     const propertyId = req.query.propertyId as string | undefined;
-    const data = await AdminService.listStaffAttendance(ownerId, propertyId);
+    // The owner/manager UI has always sent `?date=`, but this handler used to drop
+    // it, so the date picker silently showed the same rows for every day.
+    const date = req.query.date as string | undefined;
+    const data = await AdminService.listStaffAttendance(ownerId, propertyId, date);
     return sendSuccess(res, 'Staff attendance fetched successfully', data);
   } catch (error: any) {
     return sendError(res, error.message || 'Failed to fetch staff attendance', 500, error);
@@ -569,6 +629,205 @@ export const recordStaffAttendance = async (req: AuthRequest, res: Response) => 
     return sendSuccess(res, 'Staff attendance recorded successfully', item);
   } catch (error: any) {
     return sendError(res, error.message || 'Failed to record staff attendance', 500, error);
+  }
+};
+
+// ==========================================
+// VISITORS
+// ==========================================
+export const listVisitors = async (req: AuthRequest, res: Response) => {
+  try {
+    const ownerId = req.user?.ownerId || req.user?.userId || '';
+    const propertyId = req.query.propertyId as string | undefined;
+    const data = await AdminService.listVisitors(ownerId, propertyId);
+    return sendSuccess(res, 'Visitors fetched successfully', data);
+  } catch (error: any) {
+    return sendError(res, error.message || 'Failed to fetch visitors', 500, error);
+  }
+};
+
+export const checkoutVisitor = async (req: AuthRequest, res: Response) => {
+  try {
+    const id = String(req.params.id);
+    const data = await AdminService.checkoutVisitor(id);
+    return sendSuccess(res, 'Visitor checked out successfully', data);
+  } catch (error: any) {
+    return sendError(res, error.message || 'Failed to check out visitor', 500, error);
+  }
+};
+
+// ==========================================
+// LEAVE REQUESTS
+// ==========================================
+export const listLeaves = async (req: AuthRequest, res: Response) => {
+  try {
+    const ownerId = req.user?.ownerId || req.user?.userId || '';
+    const propertyId = req.query.propertyId as string | undefined;
+    const status = req.query.status as string | undefined;
+    const data = await AdminService.listLeaves(ownerId, propertyId, status);
+    return sendSuccess(res, 'Leave requests fetched successfully', data);
+  } catch (error: any) {
+    return sendError(res, error.message || 'Failed to fetch leave requests', 500, error);
+  }
+};
+
+export const updateLeaveStatus = async (req: AuthRequest, res: Response) => {
+  try {
+    const id = String(req.params.id);
+    const { status } = req.body;
+    const approverId = req.user?.userId || '';
+    if (!status) return sendError(res, 'Status is required', 400);
+    const data = await AdminService.updateLeaveStatus(id, status, approverId);
+    return sendSuccess(res, 'Leave request updated successfully', data);
+  } catch (error: any) {
+    return sendError(res, error.message || 'Failed to update leave request', 500, error);
+  }
+};
+
+// ==========================================
+// STUDENT ATTENDANCE
+// ==========================================
+export const listAttendance = async (req: AuthRequest, res: Response) => {
+  try {
+    const ownerId = req.user?.ownerId || req.user?.userId || '';
+    const propertyId = req.query.propertyId as string | undefined;
+    const date = req.query.date as string | undefined;
+    const data = await AdminService.listAttendance(ownerId, propertyId, date);
+    return sendSuccess(res, 'Attendance fetched successfully', data);
+  } catch (error: any) {
+    return sendError(res, error.message || 'Failed to fetch attendance', 500, error);
+  }
+};
+
+export const recordStudentAttendance = async (req: AuthRequest, res: Response) => {
+  try {
+    const { propertyId, userId, date, status, remarks } = req.body;
+    if (!propertyId || !userId || !date || !status) {
+      return sendError(res, 'Property ID, User ID, Date, and Status required', 400);
+    }
+    const data = await AdminService.recordStudentAttendance({ propertyId, userId, date: new Date(date), status, remarks });
+    return sendSuccess(res, 'Attendance recorded successfully', data);
+  } catch (error: any) {
+    return sendError(res, error.message || 'Failed to record attendance', 500, error);
+  }
+};
+
+// ==========================================
+// INVENTORY
+// ==========================================
+export const listInventory = async (req: AuthRequest, res: Response) => {
+  try {
+    const ownerId = req.user?.ownerId || req.user?.userId || '';
+    const propertyId = req.query.propertyId as string | undefined;
+    const data = await AdminService.listInventory(ownerId, propertyId);
+    return sendSuccess(res, 'Inventory fetched successfully', data);
+  } catch (error: any) {
+    return sendError(res, error.message || 'Failed to fetch inventory', 500, error);
+  }
+};
+
+export const createInventoryItem = async (req: AuthRequest, res: Response) => {
+  try {
+    const { propertyId, itemName, category, currentQuantity, unit, minThreshold } = req.body;
+    if (!propertyId || !itemName || !category) {
+      return sendError(res, 'Property ID, item name and category are required', 400);
+    }
+    const data = await AdminService.createInventoryItem({ propertyId, itemName, category, currentQuantity, unit, minThreshold });
+    return sendSuccess(res, 'Inventory item created successfully', data, 201);
+  } catch (error: any) {
+    return sendError(res, error.message || 'Failed to create inventory item', 500, error);
+  }
+};
+
+export const updateInventoryItem = async (req: AuthRequest, res: Response) => {
+  try {
+    const id = String(req.params.id);
+    const data = await AdminService.updateInventoryItem(id, req.body);
+    return sendSuccess(res, 'Inventory item updated successfully', data);
+  } catch (error: any) {
+    return sendError(res, error.message || 'Failed to update inventory item', 500, error);
+  }
+};
+
+// ==========================================
+// STAFF TASKS
+// ==========================================
+export const listStaffTasks = async (req: AuthRequest, res: Response) => {
+  try {
+    const ownerId = req.user?.ownerId || req.user?.userId || '';
+    const propertyId = req.query.propertyId as string | undefined;
+    const status = req.query.status as string | undefined;
+    const data = await AdminService.listStaffTasks(ownerId, propertyId, status);
+    return sendSuccess(res, 'Tasks fetched successfully', data);
+  } catch (error: any) {
+    return sendError(res, error.message || 'Failed to fetch tasks', 500, error);
+  }
+};
+
+export const createStaffTask = async (req: AuthRequest, res: Response) => {
+  try {
+    const { propertyId, assignedTo, title, description, priority, dueDate } = req.body;
+    if (!propertyId || !assignedTo || !title) {
+      return sendError(res, 'Property ID, assignee and title are required', 400);
+    }
+    const data = await AdminService.createStaffTask({ propertyId, assignedTo, title, description: description || '', priority, dueDate });
+    return sendSuccess(res, 'Task created successfully', data, 201);
+  } catch (error: any) {
+    return sendError(res, error.message || 'Failed to create task', 500, error);
+  }
+};
+
+export const updateStaffTaskStatus = async (req: AuthRequest, res: Response) => {
+  try {
+    const id = String(req.params.id);
+    const { status } = req.body;
+    if (!status) return sendError(res, 'Status is required', 400);
+    const data = await AdminService.updateStaffTaskStatus(id, status);
+    return sendSuccess(res, 'Task updated successfully', data);
+  } catch (error: any) {
+    return sendError(res, error.message || 'Failed to update task', 500, error);
+  }
+};
+
+// ==========================================
+// INVOICES & PAYMENTS
+// ==========================================
+export const listInvoices = async (req: AuthRequest, res: Response) => {
+  try {
+    const ownerId = req.user?.ownerId || req.user?.userId || '';
+    const propertyId = req.query.propertyId as string | undefined;
+    const status = req.query.status as string | undefined;
+    const data = await AdminService.listInvoices(ownerId, propertyId, status);
+    return sendSuccess(res, 'Invoices fetched successfully', data);
+  } catch (error: any) {
+    return sendError(res, error.message || 'Failed to fetch invoices', 500, error);
+  }
+};
+
+export const recordInvoicePayment = async (req: AuthRequest, res: Response) => {
+  try {
+    const ownerId = req.user?.ownerId || req.user?.userId || '';
+    const invoiceId = String(req.params.id);
+    const { amount, method } = req.body;
+    if (amount === undefined || amount === null) return sendError(res, 'Payment amount is required', 400);
+    const data = await AdminService.recordInvoicePayment({ ownerId, invoiceId, amount: Number(amount), method });
+    return sendSuccess(res, 'Payment recorded successfully', data, 201);
+  } catch (error: any) {
+    return sendError(res, error.message || 'Failed to record payment', 500, error);
+  }
+};
+
+// ==========================================
+// DOCUMENTS
+// ==========================================
+export const listDocuments = async (req: AuthRequest, res: Response) => {
+  try {
+    const ownerId = req.user?.ownerId || req.user?.userId || '';
+    const propertyId = req.query.propertyId as string | undefined;
+    const data = await AdminService.listDocuments(ownerId, propertyId);
+    return sendSuccess(res, 'Documents fetched successfully', data);
+  } catch (error: any) {
+    return sendError(res, error.message || 'Failed to fetch documents', 500, error);
   }
 };
 

@@ -1,6 +1,24 @@
 import bcrypt from 'bcryptjs';
 import { prisma } from '../../db';
-import { UserRole, BedStatus, StayStatus, ComplaintStatus, PropertyType, RoomType, ComplaintPriority, VerificationStatus } from '@prisma/client';
+import { UserRole, BedStatus, StayStatus, ComplaintStatus, PropertyType, RoomType, ComplaintPriority, VerificationStatus, InvoiceStatus, PaymentMethod, PaymentStatus, AttendanceStatus } from '@prisma/client';
+import { gateScanPath, signGateToken } from '../../utils/gateQr';
+import { attendanceDateFromKey } from '../../utils/datetime';
+
+/** Error carrying the HTTP status the admin controller should return. */
+export class AdminRequestError extends Error {
+  statusCode: number;
+  constructor(message: string, statusCode = 400) {
+    super(message);
+    this.statusCode = statusCode;
+  }
+}
+
+/** Minimal actor shape needed to scope property and room access. */
+export interface AdminActor {
+  userId: string;
+  ownerId?: string;
+  role: string;
+}
 
 export class AdminService {
   // ==========================================
@@ -484,7 +502,34 @@ export class AdminService {
   // ==========================================
   // 3. ROOMS & BEDS
   // ==========================================
-  static async listRooms(propertyId: string) {
+  /**
+   * Confirms the actor may manage rooms for this property.
+   * OWNER must own the property, MANAGER must be assigned to it, SUPERADMIN may reach any.
+   */
+  static async assertRoomAccess(propertyId: string, actor: AdminActor) {
+    if (!propertyId) throw new AdminRequestError('Property ID required', 400);
+
+    const property = await prisma.property.findFirst({
+      where: actor.role === 'SUPERADMIN'
+        ? { id: propertyId }
+        : { id: propertyId, ownerId: actor.ownerId || actor.userId },
+      select: { id: true },
+    });
+    if (!property) throw new AdminRequestError('Property not found', 404);
+
+    if (actor.role === 'MANAGER') {
+      const assignment = await prisma.staffAssignment.findFirst({
+        where: { propertyId, userId: actor.userId },
+        select: { id: true },
+      });
+      if (!assignment) throw new AdminRequestError('This property is not assigned to you', 403);
+    }
+
+    return property.id;
+  }
+
+  static async listRooms(propertyId: string, actor: AdminActor) {
+    await AdminService.assertRoomAccess(propertyId, actor);
     return prisma.room.findMany({
       where: { floor: { propertyId } },
       include: {
@@ -495,53 +540,193 @@ export class AdminService {
     });
   }
 
-  static async createRoom(data: {
-    propertyId: string;
-    floorNumber?: number;
-    roomNumber: string;
-    type?: RoomType;
-    monthlyRent?: number;
-    bedCount?: number;
-  }) {
-    let floor = await prisma.floor.findFirst({
-      where: { propertyId: data.propertyId, floorNumber: data.floorNumber || 1 },
-    });
-
-    if (!floor) {
-      floor = await prisma.floor.create({
-        data: {
-          propertyId: data.propertyId,
-          floorNumber: data.floorNumber || 1,
-          name: `Floor ${data.floorNumber || 1}`,
-        },
-      });
-    }
-
-    const room = await prisma.room.create({
-      data: {
-        floorId: floor.id,
-        roomNumber: data.roomNumber,
-        type: data.type || RoomType.DOUBLE_SHARING,
-        monthlyRent: (data.monthlyRent || 8500) * 100, // convert to Paise
+  static async getRoom(roomId: string, actor: AdminActor) {
+    const room = await prisma.room.findUnique({
+      where: { id: roomId },
+      include: {
+        beds: true,
+        floor: { include: { property: { select: { id: true, name: true, ownerId: true } } } },
       },
     });
+    if (!room) throw new AdminRequestError('Room not found', 404);
 
-    const bedCount = data.bedCount || 2;
-    for (let b = 1; b <= bedCount; b++) {
-      await prisma.bed.create({
-        data: {
-          roomId: room.id,
-          bedNumber: `B-${b}`,
-          status: BedStatus.VACANT,
-          monthlyRent: (data.monthlyRent || 8500) * 100,
-        },
-      });
-    }
-
+    await AdminService.assertRoomAccess(room.floor.propertyId, actor);
     return room;
   }
 
-  static async updateBedStatus(bedId: string, status: BedStatus) {
+  /**
+   * Creates a room together with its beds in one transaction.
+   * `monthlyRent` arrives in Rupees (from the UI) and is stored in Paise.
+   * The sharing count maps onto RoomType so rows stay consistent with seeded data.
+   */
+  static async createRoom(data: {
+    propertyId: string;
+    roomNumber: string;
+    floorNumber: number;
+    bedCount: number;
+    monthlyRent: number;
+  }, actor: AdminActor) {
+    if (!data.propertyId) throw new AdminRequestError('Property ID is required', 400);
+    if (!data.roomNumber) throw new AdminRequestError('Room number is required', 400);
+    if (!Number.isInteger(data.floorNumber) || data.floorNumber < 0 || data.floorNumber > 200) {
+      throw new AdminRequestError('Floor must be a whole number between 0 and 200', 400);
+    }
+    if (!Number.isInteger(data.bedCount) || data.bedCount < 1 || data.bedCount > 100) {
+      throw new AdminRequestError('Sharing count must be a whole number between 1 and 100', 400);
+    }
+    if (!Number.isFinite(data.monthlyRent) || data.monthlyRent < 0) {
+      throw new AdminRequestError('Rent per bed must be a non-negative number', 400);
+    }
+
+    const rentPaise = Math.round(data.monthlyRent * 100);
+    if (rentPaise > 2147483647) throw new AdminRequestError('Rent per bed is too large', 400);
+
+    await AdminService.assertRoomAccess(data.propertyId, actor);
+
+    const typeMap: Record<number, RoomType> = {
+      1: RoomType.SINGLE,
+      2: RoomType.DOUBLE_SHARING,
+      3: RoomType.TRIPLE_SHARING,
+      4: RoomType.FOUR_SHARING,
+    };
+
+    try {
+      const room = await prisma.$transaction(async (tx) => {
+        const floor = await tx.floor.upsert({
+          where: { propertyId_floorNumber: { propertyId: data.propertyId, floorNumber: data.floorNumber } },
+          update: {},
+          create: {
+            propertyId: data.propertyId,
+            floorNumber: data.floorNumber,
+            name: `Floor ${data.floorNumber}`,
+          },
+        });
+
+        return tx.room.create({
+          data: {
+            floorId: floor.id,
+            roomNumber: data.roomNumber,
+            type: typeMap[data.bedCount] || RoomType.DORMITORY,
+            monthlyRent: rentPaise,
+            beds: {
+              create: Array.from({ length: data.bedCount }, (_, index) => ({
+                bedNumber: `B-${index + 1}`,
+                status: BedStatus.VACANT,
+                monthlyRent: rentPaise,
+              })),
+            },
+          },
+          include: { beds: true, floor: true },
+        });
+      });
+
+      await prisma.auditLog.create({
+        data: {
+          actorId: actor.userId,
+          ownerId: actor.ownerId || actor.userId,
+          propertyId: data.propertyId,
+          action: 'ROOM_CREATED',
+          entityType: 'Room',
+          entityId: room.id,
+          details: JSON.stringify({ roomNumber: room.roomNumber, bedCount: data.bedCount, monthlyRent: data.monthlyRent }),
+        },
+      });
+
+      return room;
+    } catch (error: any) {
+      if (error?.code === 'P2002') {
+        throw new AdminRequestError('This room number already exists on this floor', 409);
+      }
+      throw error;
+    }
+  }
+
+  /** Deletes a room and its beds. Refuses while any bed is still occupied. */
+  static async deleteRoom(roomId: string, actor: AdminActor) {
+    const room = await prisma.room.findUnique({
+      where: { id: roomId },
+      include: { beds: true, floor: true },
+    });
+    if (!room) throw new AdminRequestError('Room not found', 404);
+
+    await AdminService.assertRoomAccess(room.floor.propertyId, actor);
+
+    if (room.beds.some(bed => bed.status === BedStatus.OCCUPIED)) {
+      throw new AdminRequestError('Cannot delete a room while a bed is occupied. Check the tenant out first.', 409);
+    }
+
+    await prisma.room.delete({ where: { id: roomId } });
+
+    await prisma.auditLog.create({
+      data: {
+        actorId: actor.userId,
+        ownerId: actor.ownerId || actor.userId,
+        propertyId: room.floor.propertyId,
+        action: 'ROOM_DELETED',
+        entityType: 'Room',
+        entityId: roomId,
+        details: JSON.stringify({ roomNumber: room.roomNumber, bedCount: room.beds.length }),
+      },
+    });
+
+    return { id: roomId };
+  }
+
+  /**
+   * Rooms have no status column, so "under maintenance" lives on the beds:
+   * vacant beds flip to UNDER_MAINTENANCE and back to VACANT in one update.
+   * Beds that are occupied or reserved are never touched.
+   */
+  static async setRoomMaintenance(roomId: string, isMaintenance: boolean, actor: AdminActor) {
+    const room = await prisma.room.findUnique({
+      where: { id: roomId },
+      include: { beds: { select: { id: true, status: true } }, floor: true },
+    });
+    if (!room) throw new AdminRequestError('Room not found', 404);
+
+    await AdminService.assertRoomAccess(room.floor.propertyId, actor);
+
+    const from = isMaintenance ? BedStatus.VACANT : BedStatus.UNDER_MAINTENANCE;
+    const to = isMaintenance ? BedStatus.UNDER_MAINTENANCE : BedStatus.VACANT;
+    const bedIds = room.beds.filter(bed => bed.status === from).map(bed => bed.id);
+
+    if (bedIds.length === 0) {
+      throw new AdminRequestError(
+        isMaintenance ? 'No vacant beds to block' : 'No beds are under maintenance',
+        409
+      );
+    }
+
+    await prisma.bed.updateMany({ where: { id: { in: bedIds } }, data: { status: to } });
+
+    await prisma.auditLog.create({
+      data: {
+        actorId: actor.userId,
+        ownerId: actor.ownerId || actor.userId,
+        propertyId: room.floor.propertyId,
+        action: isMaintenance ? 'ROOM_MAINTENANCE_STARTED' : 'ROOM_MAINTENANCE_ENDED',
+        entityType: 'Room',
+        entityId: roomId,
+        details: JSON.stringify({ roomNumber: room.roomNumber, beds: bedIds.length }),
+      },
+    });
+
+    return { id: roomId, isMaintenance, updatedBeds: bedIds.length };
+  }
+
+  static async updateBedStatus(bedId: string, status: BedStatus, actor: AdminActor) {
+    if (!Object.values(BedStatus).includes(status)) {
+      throw new AdminRequestError(`Unsupported bed status: ${status}`, 400);
+    }
+
+    const bed = await prisma.bed.findUnique({
+      where: { id: bedId },
+      include: { room: { include: { floor: true } } },
+    });
+    if (!bed) throw new AdminRequestError('Bed not found', 404);
+
+    await AdminService.assertRoomAccess(bed.room.floor.propertyId, actor);
+
     return prisma.bed.update({
       where: { id: bedId },
       data: { status },
@@ -773,26 +958,87 @@ export class AdminService {
   // ==========================================
   // 7. GATE LOGS & NOTICES & MAINTENANCE & FOOD & FINANCE
   // ==========================================
-  static async listGateLogs(propertyId: string) {
+  static async listGateLogs(propertyId: string, ownerId: string, managerId?: string) {
+    await this.requireGateProperty(propertyId, ownerId, managerId);
     return prisma.gateLog.findMany({
       where: { propertyId },
       orderBy: { timestamp: 'desc' },
-      take: 50,
     });
   }
 
-  static async addGateLog(data: {
+  /**
+   * Everything the printed gate QR poster needs.
+   *
+   * The poster used to be drawn from a hash of the property name, which no scanner
+   * could ever decode, and it carried no verifiable token — so attendance could be
+   * recorded from anywhere. This returns a real, signed token plus the real
+   * property details (the curfew is no longer a hardcoded "10:00 PM").
+   */
+  static async getPropertyGateQr(propertyId: string, actor: AdminActor) {
+    await AdminService.assertRoomAccess(propertyId, actor);
+
+    const property = await prisma.property.findUnique({
+      where: { id: propertyId },
+      select: { id: true, name: true, address: true, contactPhone: true, curfewTime: true },
+    });
+    if (!property) throw new AdminRequestError('Property not found', 404);
+
+    const token = signGateToken(property.id);
+    return {
+      propertyId: property.id,
+      propertyName: property.name,
+      address: property.address,
+      contactPhone: property.contactPhone,
+      curfewTime: property.curfewTime,
+      token,
+      /** Route the QR deep-links to; the browser prepends its own origin. */
+      scanPath: gateScanPath(token),
+    };
+  }
+
+  private static async requireGateProperty(propertyId: string, ownerId: string, managerId?: string) {
+    const property = await prisma.property.findFirst({ where: { id: propertyId, ownerId }, select: { id: true } });
+    if (!property) throw new Error('Property not found');
+    if (managerId) {
+      const assignment = await prisma.staffAssignment.findFirst({ where: { propertyId, userId: managerId } });
+      if (!assignment) throw new Error('Property is not assigned to this manager');
+    }
+  }
+
+  static async addGateLog(ownerId: string, actorId: string, data: {
     propertyId: string;
-    userId: string;
-    entryType: string;
-    passCode?: string;
-  }) {
+    studentId: string;
+    type: string;
+    reason?: string;
+    destination?: string;
+    expectedReturnTime?: string;
+    isLate?: boolean;
+  }, managerId?: string) {
+    await this.requireGateProperty(data.propertyId, ownerId, managerId);
+    const type = data.type.toUpperCase();
+    if (!['ENTRY', 'EXIT'].includes(type)) throw new Error('Movement must be ENTRY or EXIT');
+    const stay = await prisma.tenantStay.findFirst({
+      where: {
+        ownerId, propertyId: data.propertyId,
+        status: { in: [StayStatus.ACTIVE, StayStatus.CHECKED_IN, StayStatus.NOTICE_PERIOD] },
+        OR: [{ tenantId: data.studentId }, { tenant: { userId: data.studentId } }],
+      },
+      include: { tenant: { include: { user: { select: { fullName: true } } } }, bed: { include: { room: true } } },
+      orderBy: { startDate: 'desc' },
+    });
+    if (!stay) throw new Error('Active resident not found in this property');
     return prisma.gateLog.create({
       data: {
         propertyId: data.propertyId,
-        userId: data.userId,
-        entryType: data.entryType,
-        passCode: data.passCode,
+        userId: stay.tenant.userId,
+        studentName: stay.tenant.user.fullName,
+        roomNumber: stay.bed.room.roomNumber,
+        type, entryType: type,
+        reason: data.reason,
+        destination: data.destination,
+        expectedReturnTime: type === 'EXIT' ? data.expectedReturnTime : null,
+        isLate: type === 'ENTRY' && data.isLate === true,
+        loggedBy: actorId,
       },
     });
   }
@@ -924,23 +1170,375 @@ export class AdminService {
     });
   }
 
-  static async listStaffAttendance(ownerId: string, propertyId?: string) {
+  static async listStaffAttendance(ownerId: string, propertyId?: string, date?: string) {
     const props = await prisma.property.findMany({ where: { ownerId }, select: { id: true } });
-    const propertyIds = props.map(p => p.id);
+    const scopedIds = propertyId ? [propertyId] : props.map(p => p.id);
+    if (scopedIds.length === 0) return [];
+
+    // Attendance rows are shared with residents, so scope to users that actually
+    // hold a staff/manager role under this owner. Without this the owner's staff
+    // register used to be filled with student rows.
+    const staffUsers = await prisma.user.findMany({
+      where: { ownerId, role: { in: [UserRole.MANAGER, UserRole.STAFF] } },
+      select: { id: true },
+    });
+    if (staffUsers.length === 0) return [];
+
+    // The `?date=` filter used to be dropped on the floor by the controller, so the
+    // date picker in the UI did nothing. Compare on the canonical day key.
+    const day = date ? attendanceDateFromKey(date) : undefined;
+
     return prisma.attendance.findMany({
-      where: { propertyId: propertyId ? propertyId : { in: propertyIds } },
+      where: {
+        propertyId: { in: scopedIds },
+        userId: { in: staffUsers.map(u => u.id) },
+        ...(day ? { date: day } : {}),
+      },
       orderBy: { date: 'desc' },
       take: 100,
     });
   }
 
   static async recordStaffAttendance(data: { propertyId: string; userId: string; date: Date; status: any; remarks?: string }) {
-    const dateStr = new Date(data.date).toISOString().split('T')[0];
-    const targetDate = new Date(dateStr + 'T00:00:00.000Z');
+    const targetDate = attendanceDateFromKey(data.date.toISOString());
     return prisma.attendance.upsert({
       where: { propertyId_userId_date: { propertyId: data.propertyId, userId: data.userId, date: targetDate } },
       update: { status: data.status, remarks: data.remarks },
       create: { propertyId: data.propertyId, userId: data.userId, date: targetDate, status: data.status, remarks: data.remarks },
     });
+  }
+
+  // ==========================================
+  // VISITORS
+  // ==========================================
+  /** Owner-scoped visitor logs. A visitor is "inside" while checkOutTime is null. */
+  static async listVisitors(ownerId: string, propertyId?: string) {
+    const props = await prisma.property.findMany({ where: { ownerId }, select: { id: true } });
+    const scopedIds = propertyId ? [propertyId] : props.map(p => p.id);
+    if (scopedIds.length === 0) return [];
+
+    return prisma.visitorLog.findMany({
+      where: { propertyId: { in: scopedIds } },
+      orderBy: { checkInTime: 'desc' },
+      take: 200,
+    });
+  }
+
+  /**
+   * Marks a visitor as checked out. The schema has no approve/reject concept —
+   * presence inside the property is modelled purely by checkOutTime being null.
+   */
+  static async checkoutVisitor(id: string) {
+    const visitor = await prisma.visitorLog.findUnique({ where: { id } });
+    if (!visitor) throw new Error('Visitor log not found');
+    if (visitor.checkOutTime) return visitor;
+    return prisma.visitorLog.update({ where: { id }, data: { checkOutTime: new Date() } });
+  }
+
+  // ==========================================
+  // LEAVE REQUESTS
+  // ==========================================
+  static async listLeaves(ownerId: string, propertyId?: string, status?: string) {
+    const props = await prisma.property.findMany({ where: { ownerId }, select: { id: true } });
+    const scopedIds = propertyId ? [propertyId] : props.map(p => p.id);
+    if (scopedIds.length === 0) return [];
+
+    return prisma.leaveRequest.findMany({
+      where: {
+        propertyId: { in: scopedIds },
+        ...(status ? { status: status.toUpperCase() } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+  }
+
+  static async updateLeaveStatus(id: string, status: string, approvedBy: string) {
+    const leave = await prisma.leaveRequest.findUnique({ where: { id } });
+    if (!leave) throw new Error('Leave request not found');
+
+    const normalized = status.toUpperCase();
+    if (!['PENDING', 'APPROVED', 'REJECTED'].includes(normalized)) {
+      throw new Error('Status must be PENDING, APPROVED or REJECTED');
+    }
+
+    return prisma.leaveRequest.update({
+      where: { id },
+      data: { status: normalized, approvedBy: normalized === 'APPROVED' ? approvedBy : null },
+    });
+  }
+
+  // ==========================================
+  // STUDENT ATTENDANCE
+  // ==========================================
+  static async listAttendance(ownerId: string, propertyId?: string, date?: string) {
+    const props = await prisma.property.findMany({ where: { ownerId }, select: { id: true } });
+    const scopedIds = propertyId ? [propertyId] : props.map(p => p.id);
+    if (scopedIds.length === 0) return [];
+
+    // Mirror of the staff register: this endpoint is the *resident* register, so it
+    // must not return staff/manager rows out of the shared Attendance table.
+    const residents = await prisma.user.findMany({
+      where: { ownerId, role: UserRole.STUDENT },
+      select: { id: true },
+    });
+    if (residents.length === 0) return [];
+
+    // Canonical day comparison. A raw UTC-midnight equality check used to miss the
+    // rows written by the student gate flow (which stored local midnight).
+    const day = date ? attendanceDateFromKey(date) : undefined;
+
+    return prisma.attendance.findMany({
+      where: {
+        propertyId: { in: scopedIds },
+        userId: { in: residents.map(u => u.id) },
+        ...(day ? { date: day } : {}),
+      },
+      orderBy: { date: 'desc' },
+      take: 300,
+    });
+  }
+
+  /**
+   * Records (or updates) a student's attendance for a given day.
+   * Reuses the shared Attendance table, keyed by the student's userId, and always
+   * writes the canonical day value so it can never duplicate a gate-log row.
+   */
+  static async recordStudentAttendance(data: { propertyId: string; userId: string; date: Date; status: string; remarks?: string }) {
+    const targetDate = attendanceDateFromKey(data.date.toISOString());
+    const status = data.status.toUpperCase() as AttendanceStatus;
+
+    return prisma.attendance.upsert({
+      where: { propertyId_userId_date: { propertyId: data.propertyId, userId: data.userId, date: targetDate } },
+      update: { status, remarks: data.remarks },
+      create: { propertyId: data.propertyId, userId: data.userId, date: targetDate, status, remarks: data.remarks },
+    });
+  }
+
+  // ==========================================
+  // INVENTORY / STOCK
+  // ==========================================
+  static async listInventory(ownerId: string, propertyId?: string) {
+    const props = await prisma.property.findMany({ where: { ownerId }, select: { id: true } });
+    const scopedIds = propertyId ? [propertyId] : props.map(p => p.id);
+    if (scopedIds.length === 0) return [];
+
+    return prisma.stockItem.findMany({
+      where: { propertyId: { in: scopedIds } },
+      orderBy: { itemName: 'asc' },
+    });
+  }
+
+  static async createInventoryItem(data: {
+    propertyId: string;
+    itemName: string;
+    category: string;
+    currentQuantity: number;
+    unit?: string;
+    minThreshold?: number;
+  }) {
+    return prisma.stockItem.create({
+      data: {
+        propertyId: data.propertyId,
+        itemName: data.itemName,
+        category: data.category,
+        currentQuantity: Number(data.currentQuantity) || 0,
+        unit: data.unit || 'kg',
+        minThreshold: data.minThreshold !== undefined ? Number(data.minThreshold) : 5,
+      },
+    });
+  }
+
+  static async updateInventoryItem(id: string, data: { currentQuantity?: number; minThreshold?: number; unit?: string; category?: string }) {
+    const item = await prisma.stockItem.findUnique({ where: { id } });
+    if (!item) throw new Error('Stock item not found');
+
+    return prisma.stockItem.update({
+      where: { id },
+      data: {
+        ...(data.currentQuantity !== undefined ? { currentQuantity: Number(data.currentQuantity) } : {}),
+        ...(data.minThreshold !== undefined ? { minThreshold: Number(data.minThreshold) } : {}),
+        ...(data.unit ? { unit: data.unit } : {}),
+        ...(data.category ? { category: data.category } : {}),
+      },
+    });
+  }
+
+  // ==========================================
+  // STAFF TASKS (housekeeping / maintenance work orders)
+  // ==========================================
+  static async listStaffTasks(ownerId: string, propertyId?: string, status?: string) {
+    const props = await prisma.property.findMany({ where: { ownerId }, select: { id: true } });
+    const scopedIds = propertyId ? [propertyId] : props.map(p => p.id);
+    if (scopedIds.length === 0) return [];
+
+    return prisma.staffTask.findMany({
+      where: {
+        propertyId: { in: scopedIds },
+        ...(status ? { status: status.toUpperCase() } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 300,
+    });
+  }
+
+  static async createStaffTask(data: {
+    propertyId: string;
+    assignedTo: string;
+    title: string;
+    description: string;
+    priority?: string;
+    dueDate?: string;
+  }) {
+    return prisma.staffTask.create({
+      data: {
+        propertyId: data.propertyId,
+        assignedTo: data.assignedTo,
+        title: data.title,
+        description: data.description,
+        priority: (data.priority || 'MEDIUM').toUpperCase(),
+        status: 'PENDING',
+        ...(data.dueDate ? { dueDate: new Date(data.dueDate) } : {}),
+      },
+    });
+  }
+
+  static async updateStaffTaskStatus(id: string, status: string) {
+    const task = await prisma.staffTask.findUnique({ where: { id } });
+    if (!task) throw new Error('Task not found');
+
+    const normalized = status.toUpperCase();
+    if (!['PENDING', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'].includes(normalized)) {
+      throw new Error('Status must be PENDING, IN_PROGRESS, COMPLETED or CANCELLED');
+    }
+
+    return prisma.staffTask.update({ where: { id }, data: { status: normalized } });
+  }
+
+  // ==========================================
+  // INVOICES & PAYMENTS
+  // Amounts are stored in paise (Int); the API returns rupees for display.
+  // ==========================================
+  static async listInvoices(ownerId: string, propertyId?: string, status?: string) {
+    const invoices = await prisma.invoice.findMany({
+      where: {
+        ownerId,
+        ...(propertyId ? { propertyId } : {}),
+        ...(status ? { status: status.toUpperCase() as InvoiceStatus } : {}),
+      },
+      include: {
+        stay: {
+          include: {
+            tenant: { include: { user: true } },
+            bed: { include: { room: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 300,
+    });
+
+    return invoices.map(inv => ({
+      id: inv.id,
+      invoiceNumber: inv.invoiceNumber,
+      propertyId: inv.propertyId,
+      stayId: inv.stayId,
+      billingMonth: inv.billingMonth,
+      dueDate: inv.dueDate,
+      status: inv.status,
+      totalAmount: inv.totalAmount / 100,
+      paidAmount: inv.paidAmount / 100,
+      balance: (inv.totalAmount - inv.paidAmount) / 100,
+      studentName: inv.stay?.tenant?.user?.fullName || 'Resident',
+      roomNumber: inv.stay?.bed?.room?.roomNumber || 'N/A',
+      bedNumber: inv.stay?.bed?.bedNumber || 'N/A',
+      createdAt: inv.createdAt,
+    }));
+  }
+
+  /**
+   * Records a payment against an invoice and advances its status.
+   * Wrapped in a transaction so the ledger and the invoice can never diverge.
+   */
+  static async recordInvoicePayment(params: { ownerId: string; invoiceId: string; amount: number; method?: string }) {
+    const invoice = await prisma.invoice.findUnique({ where: { id: params.invoiceId } });
+    if (!invoice) throw new Error('Invoice not found');
+    if (invoice.ownerId !== params.ownerId) throw new Error('Invoice does not belong to this owner');
+
+    const amountPaise = Math.round(params.amount * 100);
+    if (!Number.isFinite(amountPaise) || amountPaise <= 0) throw new Error('Payment amount must be greater than zero');
+
+    const outstanding = invoice.totalAmount - invoice.paidAmount;
+    if (outstanding <= 0) throw new Error('Invoice is already fully paid');
+    if (amountPaise > outstanding) throw new Error('Payment exceeds the outstanding balance');
+
+    const method = (params.method || 'CASH').toUpperCase() as PaymentMethod;
+    const newPaid = invoice.paidAmount + amountPaise;
+    const newStatus = newPaid >= invoice.totalAmount ? InvoiceStatus.PAID : InvoiceStatus.PARTIALLY_PAID;
+
+    return prisma.$transaction(async tx => {
+      const payment = await tx.payment.create({
+        data: {
+          ownerId: params.ownerId,
+          invoiceId: invoice.id,
+          transactionRef: `PAY-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
+          amount: amountPaise,
+          method,
+          status: PaymentStatus.COMPLETED,
+        },
+      });
+
+      const updated = await tx.invoice.update({
+        where: { id: invoice.id },
+        data: { paidAmount: newPaid, status: newStatus },
+      });
+
+      return {
+        payment: { ...payment, amount: payment.amount / 100 },
+        invoice: { ...updated, totalAmount: updated.totalAmount / 100, paidAmount: updated.paidAmount / 100 },
+      };
+    });
+  }
+
+  // ==========================================
+  // DOCUMENTS
+  // Documents belong to a tenant, so they are scoped through the owner's
+  // properties -> stays -> tenants.
+  // ==========================================
+  static async listDocuments(ownerId: string, propertyId?: string) {
+    const props = await prisma.property.findMany({ where: { ownerId }, select: { id: true } });
+    const scopedIds = propertyId ? [propertyId] : props.map(p => p.id);
+    if (scopedIds.length === 0) return [];
+
+    const stays = await prisma.tenantStay.findMany({
+      where: { ownerId, propertyId: { in: scopedIds } },
+      select: {
+        id: true,
+        propertyId: true,
+        bed: { select: { room: { select: { roomNumber: true } } } },
+        tenant: {
+          select: {
+            id: true,
+            user: { select: { fullName: true } },
+            documents: { select: { id: true, type: true, fileUrl: true, fileName: true, fileSize: true, uploadedAt: true } },
+          },
+        },
+      },
+    });
+
+    return stays.flatMap(stay =>
+      (stay.tenant.documents || []).map(doc => ({
+        id: doc.id,
+        tenantId: stay.tenant.id,
+        tenantName: stay.tenant.user?.fullName || 'Resident',
+        propertyId: stay.propertyId,
+        roomNumber: stay.bed?.room?.roomNumber || 'N/A',
+        type: doc.type,
+        fileName: doc.fileName,
+        fileUrl: doc.fileUrl,
+        fileSize: doc.fileSize,
+        uploadedAt: doc.uploadedAt,
+      }))
+    );
   }
 }

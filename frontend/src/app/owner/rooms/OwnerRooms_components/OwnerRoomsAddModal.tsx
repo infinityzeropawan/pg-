@@ -87,7 +87,7 @@ export function OwnerRoomsAddModal({
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1">
                 <label className="text-xs font-medium text-secondary">Sharing *</label>
                 <select 
@@ -113,34 +113,12 @@ export function OwnerRoomsAddModal({
                   className="w-full bg-input border border-border rounded-md px-3 py-2 text-sm text-primary focus:border-primary outline-none"
                 />
               </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-secondary">Deposit *</label>
-                <input 
-                  required type="number" min="0"
-                  onKeyDown={(e) => { if (e.key === '-' || e.key === 'e') e.preventDefault(); }}
-                  value={(formData as any).deposit} 
-// @ts-expect-error
-                  onChange={e => setFormData((p: unknown) => ({...p, deposit: parseInt(e.target.value)||0}))}
-                  className="w-full bg-input border border-border rounded-md px-3 py-2 text-sm text-primary focus:border-primary outline-none"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-secondary">Amenities (comma separated)</label>
-              <input 
-                type="text" placeholder="AC, Balcony, Attached Washroom"
-                value={(formData as any).amenities} 
-// @ts-expect-error
-                onChange={e => setFormData((p: unknown) => ({...p, amenities: e.target.value}))}
-                className="w-full bg-input border border-border rounded-md px-3 py-2 text-sm text-primary focus:border-primary outline-none"
-              />
             </div>
 
             <div className="pt-4 border-t border-border mt-6 bg-[rgba(16,185,129,0.05)] p-3 rounded-lg flex gap-3 text-success">
               <CheckCircle2 className="w-5 h-5 shrink-0" />
               <div className="text-xs">
-                <strong>Auto-generation active:</strong> Saving this will automatically create {(formData as any).sharing} beds ({Array.from({length: (formData as any).sharing}).map((_,i) => String.fromCharCode(65+i)).join(', ')}) attached to this room.
+                <strong>Auto-generation active:</strong> Saving this creates the room and its {(formData as any).sharing} beds in one step ({Array.from({length: (formData as any).sharing}).map((_,i) => `B-${i+1}`).join(', ')}).
               </div>
             </div>
           </form>

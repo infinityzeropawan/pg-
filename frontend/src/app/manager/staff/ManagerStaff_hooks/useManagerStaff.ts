@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useManagerPropertyContext } from '@/app/manager/manager_components/ManagerPropertyContext';
 import { adminRequest } from '@/app/owner/owner_lib/owner_api/AdminClient';
 import type { StaffMember, StaffAttendance } from '../ManagerStaff_types/Staff.types';
+import { businessDayKey } from '@/lib/utils/datetime';
 
 export function useManagerStaff() {
   const { selectedPropertyId } = useManagerPropertyContext();
@@ -19,7 +20,7 @@ export function useManagerStaff() {
 
     setLoading(true);
     try {
-      const today = new Date().toISOString().split('T')[0] || '';
+      const today = businessDayKey();
       const [backendStaff, backendAtt] = await Promise.all([
         adminRequest<any[]>('/staff').catch(() => []),
         adminRequest<any[]>(`/staff/attendance?date=${today}`).catch(() => [])
@@ -63,7 +64,7 @@ export function useManagerStaff() {
   }, [fetchStaffData]);
 
   const markAttendance = async (staffId: string, status: 'Present' | 'Absent' | 'On Leave') => {
-    const today = new Date().toISOString().split('T')[0] || '';
+    const today = businessDayKey();
     setAttendance(prev => {
       const existing = prev.find(a => a.staffId === staffId && a.date === today);
       if (existing) {

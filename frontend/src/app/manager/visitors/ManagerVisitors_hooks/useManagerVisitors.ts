@@ -13,27 +13,42 @@ export function useManagerVisitors(): UseManagerVisitorsReturn {
   const { selectedPropertyId, loading: ctxLoading } = useManagerPropertyContext();
   const [visitors, setVisitors] = useState<Visitor[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const user = useManagerSession();
-  const loadData = () => {
-    if (!ctxLoading && selectedPropertyId) {
-      setLoading(true);
-      setVisitors(api.managerOperations.listVisitors(selectedPropertyId) as unknown as Visitor[]);
-      setLoading(false);
+
+  const loadData = async () => {
+    if (ctxLoading || !selectedPropertyId) return;
+    setLoading(true);
+    try {
+      setVisitors((await api.managerOperations.listVisitors(selectedPropertyId)) as unknown as Visitor[]);
+      setError(null);
+    } catch (e) {
+      setVisitors([]);
+      setError(e instanceof Error ? e.message : 'Failed to load visitors');
     }
+    setLoading(false);
   };
   // Re-fetch visitors when property selection changes or context finishes loading.
   useEffect(() => {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPropertyId, ctxLoading]);
-  const handleStatus = (id: string, status: string) => {
+
+  const handleStatus = async (id: string, status: string) => {
     if (!user) return;
-    api.managerOperations.updateVisitorStatus(id, status as 'approved' | 'rejected' | 'checked_in' | 'checked_out', user.id);
+    try {
+      await api.managerOperations.updateVisitorStatus(id, status as 'approved' | 'rejected' | 'checked_in' | 'checked_out', user.id);
+      setError(null);
+    } catch (e) {
+      // Surfaced to the user instead of silently reporting success.
+      setError(e instanceof Error ? e.message : 'Failed to update visitor');
+    }
     loadData();
   };
   return {
     visitors,
     loading,
+    error,
     handleStatus,
     selectedPropertyId,
     ctxLoading

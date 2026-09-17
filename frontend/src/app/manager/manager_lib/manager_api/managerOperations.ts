@@ -1,71 +1,116 @@
 // @ts-nocheck
+// Backend-backed manager operations. Writes now persist to Postgres and are
+// visible to every role/device, instead of being private to one browser.
 import { db } from '@/lib/storage/db';
 import { STORAGE_KEYS } from '@/lib/storage/keys';
 import { createId } from '@/lib/utils/id';
+import { adminRequest } from '@/app/owner/owner_lib/owner_api/AdminClient';
 import { financeApi } from '@/app/owner/owner_lib/owner_api/OwnerFinance';
+import { businessDayKey } from '@/lib/utils/datetime';
 
-import type { BaseEntity } from '@/lib/storage/db';
+/** Backend enum value for a UI-facing complaint status. */
+function toComplaintStatus(status: string): string {
+  switch (String(status || '').toLowerCase()) {
+    case 'open': return 'OPEN';
+    case 'in progress': return 'IN_PROGRESS';
+    case 'resolved': return 'RESOLVED';
+    case 'closed': return 'CLOSED';
+    case 'rejected': return 'REJECTED';
+    default: return 'OPEN';
+  }
+}
+
+/** Maps a backend ComplaintStatus enum back to the label the UI renders. */
+function fromComplaintStatus(status: string): string {
+  switch (String(status || '').toUpperCase()) {
+    case 'OPEN': return 'Open';
+    case 'IN_PROGRESS': return 'In Progress';
+    case 'RESOLVED': return 'Resolved';
+    case 'CLOSED': return 'Closed';
+    case 'REJECTED': return 'Rejected';
+    default: return 'Open';
+  }
+}
+
 export const managerOperationsApi = {
-  // Visitors
-  listVisitors: (propertyId: string) => {
+  // Visitors — served by GET /admin/visitors (owner-scoped VisitorLog rows).
+  // Presence is derived from checkOutTime because the schema has no status column.
+  async listVisitors(propertyId: string) {
     if (!propertyId) return [];
-    return db.getAll<BaseEntity & { propertyId?: string; isDeleted?: boolean; [key: string]: unknown }>(STORAGE_KEYS.VISITORS || 'spg_visitors').filter(v => v.propertyId === propertyId && !v.isDeleted).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const rows = await adminRequest<any[]>(`/visitors?propertyId=${encodeURIComponent(propertyId)}`);
+    return (Array.isArray(rows) ? rows : []).map((v: any) => ({
+      ...v,
+      name: v.visitorName,
+      phone: v.visitorPhone,
+      status: v.checkOutTime ? 'checked_out' : 'checked_in',
+      checkOutTime: v.checkOutTime || undefined,
+    }));
   },
-                  updateVisitorStatus: (id: string, status: 'approved' | 'rejected' | 'checked_in' | 'checked_out', managerId: string) => {
-                                const data: unknown = { status, updatedBy: managerId as string | undefined as string | undefined, updatedAt: new Date().toISOString() };
-    if (status === 'checked_in') (data as Record<string, unknown>).checkInTime = new Date().toISOString();
-    if (status === 'checked_out') (data as Record<string, unknown>).checkOutTime = new Date().toISOString();
-    db.update<BaseEntity & { propertyId?: string; isDeleted?: boolean; [key: string]: unknown }>(STORAGE_KEYS.VISITORS, id, data);
-                  },
-            // Attendance (Students)
-                          listStudents: (propertyId: string) => {
+
+  /**
+   * Only checkout is backed by the database (it sets checkOutTime). Approve,
+   * reject and check-in were localStorage-only concepts with no schema
+   * equivalent, so they raise instead of pretending to succeed.
+   */
+  async updateVisitorStatus(id: string, status: 'approved' | 'rejected' | 'checked_in' | 'checked_out', _managerId: string) {
+    if (status !== 'checked_out') {
+      throw new Error(`Visitor status "${status}" is not supported yet. Only checkout is available.`);
+    }
+    await adminRequest(`/visitors/${id}/checkout`, { method: 'PATCH' });
+  },
+            // Attendance (Students) — served by GET/POST /admin/attendance.
+// listStudents returns a superset (flat fields + the legacy profile/user
+// nesting) so every existing consumer keeps working.
+                          listStudents: async (propertyId: string) => {
                                 if (!propertyId) return [];
-                                type StudentEntity = BaseEntity & { propertyId: string; isDeleted: boolean; status: string; userId: string; roomId: string; duesAmount: number; pgScore: number; rentAmount: number };
-                                const profiles = db.getAll<StudentEntity>(STORAGE_KEYS.STUDENTS).filter(s => s.propertyId === propertyId && s.status === 'active' && !s.isDeleted);
-                                            const users = db.getAll<BaseEntity & { propertyId?: string; isDeleted?: boolean; [key: string]: unknown }>(STORAGE_KEYS.USERS);
-                                const rooms = db.getAll<BaseEntity & { propertyId?: string; isDeleted?: boolean; [key: string]: unknown }>(STORAGE_KEYS.ROOMS);
-                                        return profiles.map(p => {
-                                          const user = users.find(u => u.id === p.userId);
-                                    const room = rooms.find(r => r.id === p.roomId);
-                                                      return { profile: p, user: { id: user?.id || '', name: (user?.name as string) || 'Unknown', phone: (user?.phone as string) || '', email: (user?.email as string) || '' }, roomNumber: (room?.number as string) || (room?.roomNumber as string) || '' };
-                                    });
+                const rows = await adminRequest<any[]>(`/tenants?propertyId=${encodeURIComponent(propertyId)}`);
+                return (Array.isArray(rows) ? rows : []).map((t: any) => ({
+                                  ...t,
+                  profile: {
+                    id: t.id,
+                    userId: t.userId,
+                    propertyId: t.propertyId,
+                    status: String(t.status || 'ACTIVE').toLowerCase(),
+                    rentAmount: t.monthlyRent || 0,
+                    depositAmount: t.securityDeposit || 0,
+                    duesAmount: t.duesAmount || 0,
+                    roomId: null,
+                    roomNumber: t.roomNumber,
+                  },
+                  user: { id: t.userId, name: t.name, phone: t.phone, email: t.email },
+                                    roomNumber: t.roomNumber,
+                }));
                 },
-                      listStudentAttendanceToday: (propertyId: string) => {
-                                            const today = new Date().toISOString().split('T')[0];
-                    return db.getAll<BaseEntity & { propertyId?: string; isDeleted?: boolean; [key: string]: unknown }>('spg_student_attendance').filter(a => a.propertyId === propertyId && a.date === today && !a.isDeleted);
+                      listStudentAttendanceToday: async (propertyId: string) => {
+                                            if (!propertyId) return [];
+                    const today = businessDayKey();
+                    const rows = await adminRequest<any[]>(`/attendance?propertyId=${encodeURIComponent(propertyId)}&date=${today}`);
+                    return (Array.isArray(rows) ? rows : []).map((a: any) => ({
+                      ...a,
+                      studentId: a.userId,
+                      date: typeof a.date === 'string' ? a.date.split('T')[0] : a.date,
+                      status: String(a.status || '').toUpperCase() === 'PRESENT' ? 'Present'
+                        : String(a.status || '').toUpperCase() === 'ON_LEAVE' ? 'On Leave' : 'Absent',
+                    }));
                     },
-                markStudentAttendance: (studentId: string, propertyId: string, status: 'Present' | 'Absent' | 'On Leave', managerId: string) => {
-                                            const today = new Date().toISOString().split('T')[0];
-                                    const existing = db.getAll<BaseEntity & { propertyId?: string; isDeleted?: boolean; [key: string]: unknown }>('spg_student_attendance').find(a => a.studentId === studentId && a.date === today && !a.isDeleted);
-                                        if (existing) {
-                        db.update<BaseEntity & { propertyId?: string; isDeleted?: boolean; [key: string]: unknown }>('spg_student_attendance', existing.id, { status, updatedBy: managerId as string | undefined as string | undefined, updatedAt: new Date().toISOString() });
-                                } else {
-                                                                  db.insert('spg_student_attendance', {
-                                                                        id: createId('att'), studentId, propertyId, date: today, status,
-                                                        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), createdBy: managerId as string | undefined as string | undefined, updatedBy: managerId as string | undefined as string | undefined, isDeleted: false
-                                                      });
-                                            }
+                markStudentAttendance: async (studentId: string, propertyId: string, status: 'Present' | 'Absent' | 'On Leave', _managerId: string) => {
+                                            const mapped = status === 'Present' ? 'PRESENT' : status === 'On Leave' ? 'ON_LEAVE' : 'ABSENT';
+                                            await adminRequest('/attendance', {
+                                                method: 'POST',
+                                                body: JSON.stringify({
+                                                    propertyId,
+                                                    userId: studentId,
+                                                    date: new Date().toISOString(),
+                                                    status: mapped,
+                                                }),
+                                            });
                       },
-                // Gate Logs
-                    listGateLogs: (propertyId: string) => {
-                      const logs = db.getAll<BaseEntity & { propertyId?: string; studentId?: string; studentName?: string; roomNumber?: string; isDeleted?: boolean; [key: string]: unknown }>(STORAGE_KEYS.GATE_LOGS).filter(g => g.propertyId === propertyId && !g.isDeleted);
-                      const students = db.getAll<any>(STORAGE_KEYS.STUDENTS);
-                      const users = db.getAll<any>(STORAGE_KEYS.USERS);
-                      const rooms = db.getAll<any>(STORAGE_KEYS.ROOMS);
-
-                      const enriched = logs.map(log => {
-                        if (log.studentName && log.roomNumber) return log;
-                        const student = students.find(s => s.id === log.studentId || s.userId === log.studentId);
-                        const user = users.find(u => u.id === (student?.userId || log.studentId));
-                        const room = rooms.find(r => r.id === student?.roomId);
-                        return {
-                          ...log,
-                          studentName: log.studentName || user?.name || 'Resident',
-                          roomNumber: log.roomNumber || room?.number || student?.roomNumber || 'N/A'
-                        };
-                      });
-
-                      return enriched.sort((a,b) => new Date((b.timestamp || b.createdAt) as string).getTime() - new Date((a.timestamp || a.createdAt) as string).getTime());
+                // Gate Logs — served by GET /admin/gate-logs (persisted rows).
+                    listGateLogs: async (propertyId: string) => {
+                      if (!propertyId) return [];
+                      const logs = await adminRequest<any[]>(`/properties/${encodeURIComponent(propertyId)}/gate-logs`);
+                      return (Array.isArray(logs) ? logs : []).sort((a, b) =>
+                        new Date(b.timestamp || b.createdAt || 0).getTime() - new Date(a.timestamp || a.createdAt || 0).getTime());
           },
               addGateLog: (data: { propertyId: string, studentId: string, type: 'entry' | 'exit', isLate: boolean, reason?: string, destination?: string, expectedReturnTime?: string, managerId: string }) => {
                         const students = db.getAll<any>(STORAGE_KEYS.STUDENTS);
@@ -125,12 +170,44 @@ export const managerOperationsApi = {
                                                 createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), createdBy: ((data as Record<string, unknown>).managerId as string | undefined) as string | undefined as string | undefined, updatedBy: ((data as Record<string, unknown>).managerId as string | undefined) as string | undefined as string | undefined, isDeleted: false
             });
                     },
-              // Complaints
-                listComplaints: (propertyId: string) => {
-                                    return db.getAll<BaseEntity & { propertyId?: string; isDeleted?: boolean; [key: string]: unknown }>(STORAGE_KEYS.COMPLAINTS).filter(c => c.propertyId === propertyId && !c.isDeleted).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+              // Complaints — served by GET/PATCH /admin/complaints (persisted rows).
+                async listComplaints(propertyId: string) {
+                                    if (!propertyId) return [];
+                    const rows = await adminRequest<any[]>(`/complaints?propertyId=${encodeURIComponent(propertyId)}`);
+                    return (Array.isArray(rows) ? rows : []).map((c: any) => ({
+                          ...c,
+                          category: String(c.category || 'GENERAL').toLowerCase(),
+                          status: fromComplaintStatus(c.status),
+                          priority: String(c.priority || 'MEDIUM').toUpperCase(),
+                          roomNumber: c.roomNumber || '',
+                    }));
                   },
-                  updateComplaintStatus: (id: string, status: string, managerId: string) => {
-                            db.update<BaseEntity & { propertyId?: string; isDeleted?: boolean; [key: string]: unknown }>(STORAGE_KEYS.COMPLAINTS, id, { status, updatedAt: new Date().toISOString(), updatedBy: managerId as string | undefined });
+                  async updateComplaintStatus(id: string, status: string, _managerId: string) {
+                    await adminRequest(`/complaints/${id}/status`, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ status: toComplaintStatus(status) }),
+                    });
+          },
+                      async resolveComplaintWithCost(id: string, cost: number, notes: string, managerId: string) {
+                    await adminRequest(`/complaints/${id}/status`, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ status: 'RESOLVED' }),
+                    });
+                    // The repair cost is persisted as a real Expense row so it
+                    // flows into the owner's expense totals.
+                    if (cost > 0) {
+                        const complaint = await adminRequest<any[]>(`/complaints`).then(
+                            (rows: any[]) => (Array.isArray(rows) ? rows : []).find((c: any) => c.id === id)
+                        );
+                        if (complaint) {
+                                                      await financeApi.createExpense({
+                                                                propertyId: complaint.propertyId,
+                                                                                        category: 'maintenance',
+                                                        amount: cost,
+                                                                        description: `Maintenance: ${complaint.title || complaint.category}${notes ? ' - ' + notes : ''}`
+                                          }, managerId);
+                                    }
+                            }
           },
                       resolveComplaintWithCost: (id: string, cost: number, notes: string, managerId: string) => {
                     const complaint = db.getById<BaseEntity & { propertyId?: string; isDeleted?: boolean; [key: string]: unknown }>(STORAGE_KEYS.COMPLAINTS, id);
@@ -152,7 +229,11 @@ export const managerOperationsApi = {
                                           }, managerId);
                                     }
           },
+          /**
+           * No backend endpoint exists for assigning complaints yet, so this raises
+           * instead of writing to localStorage and reporting success.
+           */
           assignComplaint: (id: string, staffId: string, managerId: string) => {
-                            db.update<BaseEntity & { propertyId?: string; isDeleted?: boolean; [key: string]: unknown }>(STORAGE_KEYS.COMPLAINTS, id, { assignedTo: staffId, updatedAt: new Date().toISOString(), updatedBy: managerId as string | undefined });
+                            throw new Error('Assigning complaints is not supported yet.');
                 }
 };

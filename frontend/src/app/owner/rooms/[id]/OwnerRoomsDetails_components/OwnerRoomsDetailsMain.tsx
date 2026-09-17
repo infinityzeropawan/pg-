@@ -2,91 +2,119 @@
 'use client';
 
 // RESPONSIBILITY: Renders the OwnerRoomsDetailsMain component. Receives data via props/hooks.
+// DATA FLOW: GET /rooms/:id -> local state -> PATCH bed status / room maintenance -> reload.
 
-import { use, useEffect, useState } from 'react';
+import { use, useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, BedDouble, AlertTriangle, User, Hash, Settings, Edit3, Trash2 } from 'lucide-react';
+import { ArrowLeft, BedDouble, AlertTriangle, User, Hash, Settings, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 
 import { roomsApi } from '@/app/owner/owner_lib/owner_api/OwnerRooms';
-import { propertiesApi } from '@/app/owner/owner_lib/owner_api/OwnerProperties';
 import { bedsApi } from '@/app/owner/owner_lib/owner_api/OwnerBeds';
-import { getSession } from '@/app/owner/owner_lib/owner_auth/OwnerSession';
-import { useOwnerPropertyContext } from '@/app/owner/owner_components/OwnerPropertyContext';
 
-import type { Room } from '@/app/owner/owner_lib/owner_api/OwnerRooms';
-import type { Bed } from '@/app/owner/owner_lib/owner_api/OwnerBeds';
+import type { BackendRoom } from '@/app/owner/owner_lib/owner_api/OwnerRooms';
+
+// Values accepted by PATCH /beds/:bedId/status (Prisma BedStatus enum).
+const BED_STATUS_OPTIONS = [
+  { value: 'VACANT', label: 'Available' },
+  { value: 'OCCUPIED', label: 'Occupied' },
+  { value: 'RESERVED', label: 'Reserved' },
+  { value: 'UNDER_MAINTENANCE', label: 'Maintenance' },
+];
 
 
 export function OwnerRoomsDetailsMain({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
   const { id } = use(params);
-  const user = typeof window !== 'undefined' ? getSession() : null;
-  const { properties } = useOwnerPropertyContext();
 
-  const [room, setRoom] = useState<Room | null>(null);
-  const [beds, setBeds] = useState<Bed[]>([]);
+  const [room, setRoom] = useState<BackendRoom | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [busyBedId, setBusyBedId] = useState('');
 
-  const loadData = () => {
-    if (!user || !id) return;
+  const loadRoom = useCallback(async () => {
+    if (!id) return;
     setLoading(true);
-    
-    const fetchedRoom = roomsApi.getById(id);
-    if (!fetchedRoom) {
-      router.replace('/owner/rooms');
-      return;
-    }
-    
-    // Safety check: is owner of this property?
-    const prop = propertiesApi.getById(fetchedRoom.propertyId);
-    if (prop?.ownerId !== user.id) {
-      router.replace('/owner/rooms');
-      return;
-    }
+    setError('');
 
-    setRoom(fetchedRoom);
-    setBeds(bedsApi.listByRoom(id));
-    setLoading(false);
-  };
+    try {
+      const fetched = await roomsApi.fetchRoomById(id);
+      setRoom(fetched);
+    } catch (err) {
+      // 404 means the room was deleted or belongs to another owner: leave.
+      const message = err instanceof Error ? err.message : 'Unable to load room.';
+      setRoom(null);
+      setError(message);
+      if (/not found/i.test(message)) router.replace('/owner/rooms');
+    } finally {
+      setLoading(false);
+    }
+  }, [id, router]);
 
   useEffect(() => {
-    loadData();
-  }, [id, user?.id, router]);
+    loadRoom();
+  }, [loadRoom]);
 
-  const handleBedStatusChange = (bedId: string, newStatus: unknown) => {
-    if (!user) return;
+  const handleBedStatusChange = async (bedId: string, newStatus: string) => {
+    setBusyBedId(bedId);
+    setError('');
     try {
-      bedsApi.updateStatus(bedId, newStatus as any, user.id);
-      loadData(); // refresh
-    } catch (err: any) {
-      alert('Failed to update bed status');
+      await bedsApi.updateBackendBedStatus(bedId, newStatus);
+      await loadRoom(); // reload so KPIs reflect the stored status
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update bed status.');
+    } finally {
+      setBusyBedId('');
     }
   };
 
-  const handleRoomMaintenance = (isMaintenance: boolean) => {
-    if (!user || !room) return;
-    roomsApi.updateStatus(room.id, isMaintenance ? 'maintenance' : 'available', user.id);
-    loadData();
-  };
-
-  const handleDeleteRoom = () => {
-    if (!user || !room) return;
+  // Rooms have no status column: the API moves every vacant bed to
+  // UNDER_MAINTENANCE and leaves occupied/reserved beds untouched.
+  const handleRoomMaintenance = async (isMaintenance: boolean) => {
+    if (!room) return;
+    setError('');
     try {
-      if (confirm(`Are you sure you want to delete Room ${room.number}?`)) {
-        roomsApi.delete(room.id, user.id);
-        router.push('/owner/rooms');
-      }
-    } catch (err: any) {
-      setError((err as any).message || 'Cannot delete room.');
+      await roomsApi.setBackendRoomMaintenance(room.id, isMaintenance);
+      await loadRoom();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update room maintenance.');
     }
   };
 
-  if (loading || !room) return <div className="p-6 motion-safe:animate-pulse">Loading room details...</div>;
+  const handleDeleteRoom = async () => {
+    if (!room) return;
+    if (!confirm(`Are you sure you want to delete Room ${room.roomNumber}? Its beds are removed too.`)) return;
+    setError('');
+    try {
+      await roomsApi.deleteBackendRoom(room.id);
+      router.push('/owner/rooms');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Cannot delete room.');
+    }
+  };
 
-  const propertyName = properties.find(p => p.id === room.propertyId)?.name || 'Unknown Property';
-  const vacantBeds = beds.filter(b => b.status === 'available').length;
+  if (loading && !room) return <div className="p-6 motion-safe:animate-pulse">Loading room details...</div>;
+
+  if (!room) {
+    return (
+      <div className="max-w-3xl mx-auto p-6 space-y-4">
+        <div className="p-4 bg-danger-bg border border-danger text-danger rounded-md flex items-center gap-3 text-sm font-medium">
+          <AlertTriangle className="w-5 h-5 shrink-0" />
+          {error || 'Room not found.'}
+        </div>
+        <Link href="/owner/rooms" className="inline-flex items-center gap-2 text-sm text-primary hover:underline">
+          <ArrowLeft className="w-4 h-4" /> Back to rooms
+        </Link>
+      </div>
+    );
+  }
+
+  const beds = Array.isArray(room.beds) ? room.beds : [];
+  const vacantBeds = beds.filter(b => b.status === 'VACANT').length;
+  const isMaintenance = beds.some(b => b.status === 'UNDER_MAINTENANCE');
+  const propertyName = room.floor?.property?.name || 'Property';
+  const sharingTotal = beds.length || 1;
+  const rentPerBed = Math.round((room.monthlyRent || 0) / 100);
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-20">
@@ -96,14 +124,14 @@ export function OwnerRoomsDetailsMain({ params }: { params: Promise<{ id: string
         </Link>
         <div>
           <h1 className="text-[22px] font-bold text-primary flex items-center gap-3">
-            Room {room.number}
-            {room.status === 'maintenance' && (
+            Room {room.roomNumber}
+            {isMaintenance && (
               <span className="text-[10px] uppercase bg-danger-bg text-danger px-2 py-1 rounded-md tracking-wider">
                 Maintenance
               </span>
             )}
           </h1>
-          <p className="text-sm text-secondary">{propertyName} • Floor {room.floor}</p>
+          <p className="text-sm text-secondary">{propertyName} • Floor {room.floor?.floorNumber ?? 1}</p>
         </div>
       </div>
 
@@ -125,28 +153,21 @@ export function OwnerRoomsDetailsMain({ params }: { params: Promise<{ id: string
             <div className="p-6 space-y-5">
               <div>
                 <div className="text-xs text-secondary mb-1">Sharing Type</div>
-                <div className="text-sm font-semibold text-primary">{room.sharing} Sharing</div>
+                <div className="text-sm font-semibold text-primary">{sharingTotal} Sharing</div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <div className="text-xs text-secondary mb-1">Rent per Bed</div>
-                  <div className="text-sm font-semibold text-success">₹{(room.rentPerBed || 0).toLocaleString()}</div>
+                  <div className="text-sm font-semibold text-success">₹{rentPerBed.toLocaleString()}</div>
                 </div>
                 <div>
-                  <div className="text-xs text-secondary mb-1">Deposit</div>
-                  <div className="text-sm font-semibold text-primary">₹{(room.deposit || 0).toLocaleString()}</div>
+                  <div className="text-xs text-secondary mb-1">Vacant Beds</div>
+                  <div className="text-sm font-semibold text-primary">{vacantBeds} / {sharingTotal}</div>
                 </div>
               </div>
               <div>
-                <div className="text-xs text-secondary mb-1">Amenities</div>
-                <div className="flex flex-wrap gap-1.5 mt-1">
-                  {(room.amenities || []).map(am => (
-                    <span key={am} className="text-[10px] bg-input text-secondary border border-border px-2 py-0.5 rounded-full">
-                      {am}
-                    </span>
-                  ))}
-                  {(room.amenities || []).length === 0 && <span className="text-xs text-secondary italic">None</span>}
-                </div>
+                <div className="text-xs text-secondary mb-1">Room Type</div>
+                <div className="text-sm font-semibold text-primary">{String(room.type || '').replace(/_/g, ' ').toLowerCase() || 'Not set'}</div>
               </div>
             </div>
           </div>
@@ -158,15 +179,21 @@ export function OwnerRoomsDetailsMain({ params }: { params: Promise<{ id: string
             </div>
             <div className="p-4 space-y-3">
               <button 
-                onClick={() => handleRoomMaintenance(room.status !== 'maintenance')}
+                onClick={() => handleRoomMaintenance(!isMaintenance)}
                 className={`w-full py-2.5 rounded-md text-sm font-medium motion-safe:transition-colors border ${
-                  room.status === 'maintenance' 
+                  isMaintenance 
                     ? 'bg-success-bg text-success border-success' 
                     : 'bg-warning-bg text-warning border-warning'
                 }`}
               >
-                {room.status === 'maintenance' ? 'Remove Maintenance Block' : 'Mark Room under Maintenance'}
+                {isMaintenance ? 'Remove Maintenance Block' : 'Mark Room under Maintenance'}
               </button>
+
+              <p className="text-[11px] text-secondary leading-relaxed">
+                {isMaintenance
+                  ? 'Clearing maintenance returns the blocked beds to Available. Occupied and reserved beds are left untouched.'
+                  : 'Marking maintenance blocks every currently vacant bed. Occupied and reserved beds are left untouched.'}
+              </p>
               
               <button onClick={handleDeleteRoom} className="w-full py-2.5 bg-danger-bg text-danger border border-danger rounded-md text-sm font-medium hover:bg-red-900 motion-safe:transition-colors flex items-center justify-center gap-2">
                 <Trash2 className="w-4 h-4" />
@@ -185,7 +212,7 @@ export function OwnerRoomsDetailsMain({ params }: { params: Promise<{ id: string
                 <h2 className="text-lg font-semibold text-primary">Beds & Students</h2>
               </div>
               <div className="text-xs font-medium px-3 py-1 bg-input rounded-full text-secondary border border-border">
-                <span className="text-primary">{vacantBeds}</span> Vacant / {room.sharing} Total
+                <span className="text-primary">{vacantBeds}</span> Vacant / {sharingTotal} Total
               </div>
             </div>
 
@@ -194,25 +221,25 @@ export function OwnerRoomsDetailsMain({ params }: { params: Promise<{ id: string
                 <div key={bed.id} className="border border-border rounded-md p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:border-primary-subtle motion-safe:transition-colors bg-page">
                   <div className="flex items-center gap-4">
                     <div className={`w-12 h-12 rounded-lg flex items-center justify-center font-bold text-lg border
-                      ${(bed.status === 'available') ? 'bg-[rgba(16,185,129,0.1)] text-success border-[rgba(16,185,129,0.2)]' : 
-                        bed.status === 'occupied' ? 'bg-primary-subtle text-primary border-primary' : 
+                      ${(bed.status === 'VACANT') ? 'bg-[rgba(16,185,129,0.1)] text-success border-[rgba(16,185,129,0.2)]' : 
+                        bed.status === 'OCCUPIED' ? 'bg-primary-subtle text-primary border-primary' : 
                         'bg-danger-bg text-danger border-danger'}`}
                     >
-                      {bed.code}
+                      {bed.bedNumber}
                     </div>
                     <div>
                       <div className="font-semibold text-primary mb-1">
-                        Bed {room.number}-{bed.code}
+                        Bed {room.roomNumber}-{bed.bedNumber}
                       </div>
                       <div className="flex items-center gap-1.5 text-xs text-secondary">
-                        {bed.status === 'occupied' ? (
+                        {bed.status === 'OCCUPIED' ? (
                           <>
                             <User className="w-3.5 h-3.5" />
                             <span>Occupied by Student</span> {/* TODO: link to student profile when module is built */}
                           </>
-                        ) : bed.status === 'maintenance' ? (
+                        ) : bed.status === 'UNDER_MAINTENANCE' ? (
                           <span className="text-danger">Under Maintenance</span>
-                        ) : bed.status === 'reserved' ? (
+                        ) : bed.status === 'RESERVED' ? (
                           <span className="text-warning">Reserved</span>
                         ) : (
                           <span className="text-success">Available for Booking</span>
@@ -224,14 +251,13 @@ export function OwnerRoomsDetailsMain({ params }: { params: Promise<{ id: string
                   <div className="shrink-0">
                     <select 
                       value={bed.status}
+                      disabled={busyBedId === bed.id}
                       onChange={(e) => handleBedStatusChange(bed.id, e.target.value)}
-                      className="bg-input border border-border text-primary text-xs rounded-md px-3 py-1.5 outline-none focus:border-primary"
+                      className="bg-input border border-border text-primary text-xs rounded-md px-3 py-1.5 outline-none focus:border-primary disabled:opacity-50"
                     >
-                      <option value="available">Available</option>
-                      <option value="occupied">Occupied</option>
-                      <option value="reserved">Reserved</option>
-                      <option value="maintenance">Maintenance</option>
-                      <option value="blocked">Blocked</option>
+                      {BED_STATUS_OPTIONS.map(option => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
                     </select>
                   </div>
                 </div>
@@ -239,7 +265,7 @@ export function OwnerRoomsDetailsMain({ params }: { params: Promise<{ id: string
 
               {beds.length === 0 && (
                 <div className="text-center py-10 text-secondary text-sm">
-                  No beds found. Something went wrong during room creation.
+                  This room has no beds yet. Add beds from the rooms list before assigning students.
                 </div>
               )}
             </div>

@@ -13,6 +13,8 @@ import { toast } from 'sonner';
 
 import { studentOperationsApi } from '@/app/student/student_lib/student_api/StudentOperations';
 import { useStudentContext } from '@/app/student/student_components/StudentContext';
+import { businessMonthKey } from '@/lib/utils/datetime';
+import { extractGateToken } from '@/lib/utils/gateQr';
 
 export type CalendarCellStatus = 'Present' | 'Absent' | 'Leave' | 'Late' | 'Pending' | 'Upcoming';
 
@@ -33,6 +35,10 @@ export interface GateLogEntry {
   createdAt: string;
   /** True when a NotificationLog row was persisted for the linked parent account. */
   parentNotified?: boolean;
+  /** ISO time the parent notification was actually written, when one was. */
+  parentNotifiedAt?: string | null;
+  /** Set when the backend collapsed a double tap / re-scan into the existing log. */
+  duplicate?: boolean;
 }
 
 export interface AttendanceStats {
@@ -46,6 +52,25 @@ export interface AttendanceStats {
   daysInMonth: number;
 }
 
+/**
+ * Session storage key for a gate pass scanned while logged out.
+ *
+ * `StudentLayout` sends unauthenticated visitors to `/student/login`, which drops the
+ * `?gate=` query — stashing the token means the pass still applies once the resident
+ * is back on the attendance screen after signing in.
+ */
+const PENDING_GATE_TOKEN_KEY = 'spg_pending_student_gate_token';
+
+/** Stashes a poster token so it survives the login redirect. */
+export function stashGateToken(token: string): void {
+  if (typeof window === 'undefined' || !token) return;
+  try {
+    window.sessionStorage.setItem(PENDING_GATE_TOKEN_KEY, token);
+  } catch {
+    // Private browsing / storage disabled — the resident can simply re-scan.
+  }
+}
+
 export interface UseStudentAttendanceResult {
   logs: GateLogEntry[];
   calendar: AttendanceCalendarCell[];
@@ -57,6 +82,13 @@ export interface UseStudentAttendanceResult {
   error: string | null;
   monthLabel: string;
   refetch: () => Promise<void>;
+  /** Signed token read from the scanned gate poster (null until a scan happens). */
+  gateToken: string | null;
+  /** Registers a decoded QR payload; returns false when it is not a gate poster. */
+  applyScannedPayload: (payload: string) => boolean;
+  clearGateToken: () => void;
+  /** True when a pass scanned before login was restored, so the UI can auto-open. */
+  pendingScanRestored: boolean;
   recordGateAttendance: (data: {
     type: 'entry' | 'exit';
     reason: string;
@@ -76,12 +108,12 @@ export function useStudentAttendance(): UseStudentAttendanceResult {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [gateToken, setGateToken] = useState<string | null>(null);
+  const [pendingScanRestored, setPendingScanRestored] = useState(false);
 
   const now = useMemo(() => new Date(), []);
-  const monthParam = useMemo(
-    () => `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`,
-    [now]
-  );
+  // Business-local month key, matching how the backend resolves `?month=`.
+  const monthParam = useMemo(() => businessMonthKey(now), [now]);
   const monthLabel = `${MONTH_NAMES[now.getMonth()]} ${now.getFullYear()}`;
 
   const load = useCallback(async () => {
@@ -129,27 +161,74 @@ export function useStudentAttendance(): UseStudentAttendanceResult {
     void load();
   }, [load]);
 
+  /**
+   * Registers the payload the camera decoded (or the `?gate=` deep link). Returns
+   * false for any other QR so the scanner keeps looking for a gate poster.
+   */
+  const applyScannedPayload = useCallback((payload: string) => {
+    const token = extractGateToken(payload);
+    if (!token) {
+      toast.error('That QR code is not a PG gate poster.');
+      return false;
+    }
+    setGateToken(token);
+    return true;
+  }, []);
+
+  const clearGateToken = useCallback(() => setGateToken(null), []);
+
+  // Restore a pass that was scanned while logged out (the attendance screen stashes
+  // it before StudentLayout redirects to /student/login, which drops the query).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    let pending: string | null = null;
+    try {
+      pending = window.sessionStorage.getItem(PENDING_GATE_TOKEN_KEY);
+    } catch {
+      return; // Storage unavailable — the resident can simply re-scan.
+    }
+    if (!pending) return;
+    try {
+      window.sessionStorage.removeItem(PENDING_GATE_TOKEN_KEY);
+    } catch {
+      // Ignore storage errors; the token is already consumed.
+    }
+    if (applyScannedPayload(pending)) setPendingScanRestored(true);
+  }, [applyScannedPayload]);
+
+
   const recordGateAttendance = useCallback(
     async (data: { type: 'entry' | 'exit'; reason: string; destination: string; expectedReturnTime?: string }) => {
       if (!profile) {
         toast.error('You must be logged in to record attendance.');
         return null;
       }
+      if (!gateToken) {
+        toast.error('Scan the gate QR poster to mark this movement.');
+        return null;
+      }
       setSubmitting(true);
       try {
-        const created = await studentOperationsApi.recordGateAttendance({
+        const created = (await studentOperationsApi.recordGateAttendance({
           type: data.type,
           reason: data.reason,
           destination: data.destination || data.reason,
           expectedReturnTime: data.type === 'exit' ? data.expectedReturnTime : undefined,
-        });
-        toast.success(
-          (created as GateLogEntry | null)?.parentNotified
-            ? 'Attendance recorded. Your parents have been notified.'
-            : 'Attendance recorded. No parent account is linked yet.'
-        );
+          gateToken,
+        })) as GateLogEntry | null;
+
+        if (created?.duplicate) {
+          // The backend collapsed a double tap / immediate re-scan.
+          toast.info('This movement was already recorded a moment ago.');
+        } else {
+          toast.success(
+            created?.parentNotified
+              ? 'Attendance recorded. Your parents have been notified.'
+              : 'Attendance recorded. No parent account is linked yet.'
+          );
+        }
         await load();
-        return (created as GateLogEntry | null) ?? null;
+        return created ?? null;
       } catch (e: unknown) {
         console.error('[useStudentAttendance] Failed to record gate attendance:', e);
         toast.error(e instanceof Error ? e.message : 'Failed to record attendance.');
@@ -158,7 +237,7 @@ export function useStudentAttendance(): UseStudentAttendanceResult {
         setSubmitting(false);
       }
     },
-    [profile, load]
+    [profile, load, gateToken]
   );
 
   // Gate status is derived from the newest log returned by the API (sorted desc).
@@ -232,6 +311,10 @@ export function useStudentAttendance(): UseStudentAttendanceResult {
     error,
     monthLabel,
     refetch: load,
+    gateToken,
+    applyScannedPayload,
+    clearGateToken,
+    pendingScanRestored,
     recordGateAttendance,
   };
 }

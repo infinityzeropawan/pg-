@@ -1,87 +1,76 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api/v1';
+import { apiUrl, warnIfApiBaseUnconfigured } from '@/lib/config/apiBase';
+import { STORAGE_KEYS } from '@/lib/storage/keys';
 
 type ApiEnvelope<T> = { success: boolean; message?: string; data: T };
 
-export async function adminRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = typeof window === 'undefined' ? null : localStorage.getItem('access_token') || localStorage.getItem('spg_auth_token');
-  const response = await fetch(`${API_BASE_URL}/admin${path}`, {
+/** Resolves the bearer token written by the login flows. */
+function authToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem(STORAGE_KEYS.AUTH_TOKEN) || localStorage.getItem('access_token');
+}
+
+function jsonHeaders(): Record<string, string> {
+  const token = authToken();
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
+/**
+ * Issues an admin-scoped request and returns the raw envelope.
+ * Paths are relative to `/api/v1/admin` (e.g. `adminRequest('/dashboard')`).
+ */
+async function adminRequestRaw<T>(path: string, options: RequestInit = {}): Promise<ApiEnvelope<T>> {
+  warnIfApiBaseUnconfigured();
+  const response = await fetch(apiUrl(`/api/v1/admin${path}`), {
     ...options,
     headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
+      ...jsonHeaders(),
+      ...(options.headers as Record<string, string> | undefined),
     },
   });
 
   const payload = await response.json().catch(() => null) as ApiEnvelope<T> | null;
   if (!response.ok || !payload?.success) {
-    throw new Error(payload?.message || 'Unable to complete admin request');
+    throw new Error(payload?.message || `Unable to complete admin request (${response.status})`);
   }
+  return payload;
+}
+
+/** Returns the unwrapped `data` payload. Preferred helper for new code. */
+export async function adminRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const payload = await adminRequestRaw<T>(path, options);
   return payload.data;
 }
 
+/**
+ * Issues a request and returns the raw envelope.
+ * NOTE: unlike `adminRequest`, paths passed here must already include the
+ * `/admin` prefix (e.g. `AdminClient.get('/admin/food-menu')`).
+ */
+async function rawRequest(path: string, options: RequestInit = {}): Promise<{ data: ApiEnvelope<any> }> {
+  warnIfApiBaseUnconfigured();
+  const response = await fetch(apiUrl(`/api/v1${path}`), {
+    ...options,
+    headers: {
+      ...jsonHeaders(),
+      ...(options.headers as Record<string, string> | undefined),
+    },
+  });
+
+  const payload = await response.json().catch(() => null) as ApiEnvelope<any> | null;
+  if (!response.ok || !payload?.success) {
+    throw new Error(payload?.message || `Request failed (${response.status})`);
+  }
+  return { data: payload };
+}
+
 export const AdminClient = {
-  get: async (path: string) => {
-    const token = typeof window === 'undefined' ? null : localStorage.getItem('access_token') || localStorage.getItem('spg_auth_token');
-    const res = await fetch(`${API_BASE_URL}${path}`, {
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-    });
-    const data = await res.json();
-    return { data };
-  },
-  post: async (path: string, body?: any) => {
-    const token = typeof window === 'undefined' ? null : localStorage.getItem('access_token') || localStorage.getItem('spg_auth_token');
-    const res = await fetch(`${API_BASE_URL}${path}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify(body),
-    });
-    const data = await res.json();
-    return { data };
-  },
-  patch: async (path: string, body?: any) => {
-    const token = typeof window === 'undefined' ? null : localStorage.getItem('access_token') || localStorage.getItem('spg_auth_token');
-    const res = await fetch(`${API_BASE_URL}${path}`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify(body),
-    });
-    const data = await res.json();
-    return { data };
-  },
-  put: async (path: string, body?: any) => {
-    const token = typeof window === 'undefined' ? null : localStorage.getItem('access_token') || localStorage.getItem('spg_auth_token');
-    const res = await fetch(`${API_BASE_URL}${path}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify(body),
-    });
-    const data = await res.json();
-    return { data };
-  },
-  delete: async (path: string) => {
-    const token = typeof window === 'undefined' ? null : localStorage.getItem('access_token') || localStorage.getItem('spg_auth_token');
-    const res = await fetch(`${API_BASE_URL}${path}`, {
-      method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-    });
-    const data = await res.json();
-    return { data };
-  },
+  get: (path: string) => rawRequest(path),
+  post: (path: string, body?: any) => rawRequest(path, { method: 'POST', body: JSON.stringify(body) }),
+  patch: (path: string, body?: any) => rawRequest(path, { method: 'PATCH', body: JSON.stringify(body) }),
+  put: (path: string, body?: any) => rawRequest(path, { method: 'PUT', body: JSON.stringify(body) }),
+  delete: (path: string) => rawRequest(path, { method: 'DELETE' }),
 };
 

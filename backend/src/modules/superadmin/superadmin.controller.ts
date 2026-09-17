@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { AuthRequest } from '../../middleware/auth.middleware';
 import { SuperadminService } from './superadmin.service';
+import { FeatureService } from '../features/features.service';
 import { sendSuccess, sendError } from '../../utils/response';
 
 export const getDashboardStats = async (req: AuthRequest, res: Response) => {
@@ -158,6 +159,39 @@ export const updateFeatureFlag = async (req: AuthRequest, res: Response) => {
     if (!key || !ownerId || typeof isEnabled !== 'boolean') return sendError(res, 'key, ownerId, and isEnabled are required', 400);
     return sendSuccess(res, 'Feature flag updated successfully', await SuperadminService.toggleFeatureFlag(key, ownerId, isEnabled, req.user?.userId || '', description));
   } catch (error: any) { return sendError(res, error.message || 'Failed to update feature flag', 400, error); }
+};
+
+export const listFeatureCatalog = async (_req: AuthRequest, res: Response) => {
+  try { return sendSuccess(res, 'Feature catalog fetched successfully', await FeatureService.listCatalog()); }
+  catch (error: any) { return sendError(res, 'Failed to fetch feature catalog', 500, error); }
+};
+
+export const getFeatureMatrix = async (_req: AuthRequest, res: Response) => {
+  try { return sendSuccess(res, 'Feature matrix fetched successfully', await FeatureService.getMatrix()); }
+  catch (error: any) { return sendError(res, 'Failed to fetch feature matrix', 500, error); }
+};
+
+export const upsertFeature = async (req: AuthRequest, res: Response) => {
+  try {
+    const { key, name, description, category, isCore, defaultEnabled, sortOrder, isActive } = req.body;
+    if (!key) return sendError(res, 'key is required', 400);
+    const feature = await FeatureService.upsertFeature({ key, name, description, category, isCore, defaultEnabled, sortOrder, isActive });
+    return sendSuccess(res, 'Feature saved successfully', feature);
+  } catch (error: any) { return sendError(res, error.message || 'Failed to save feature', 400, error); }
+};
+
+export const updatePlanFeatures = async (req: AuthRequest, res: Response) => {
+  try {
+    const planId = String(req.params.id);
+    const items = Array.isArray(req.body?.features) ? req.body.features : null;
+    if (!items) return sendError(res, 'features array is required', 400);
+
+    const invalid = items.filter((item: any) => !item?.featureKey || typeof item.isEnabled !== 'boolean');
+    if (invalid.length) return sendError(res, 'Each feature needs featureKey and boolean isEnabled', 400);
+
+    const saved = await SuperadminService.setPlanFeatureEntitlements(planId, items, req.user?.userId || '');
+    return sendSuccess(res, 'Plan features updated successfully', saved);
+  } catch (error: any) { return sendError(res, error.message || 'Failed to update plan features', 400, error); }
 };
 
 export const listTickets = async (_req: AuthRequest, res: Response) => {

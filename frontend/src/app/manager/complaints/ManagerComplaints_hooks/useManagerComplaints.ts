@@ -26,8 +26,14 @@ export function useManagerComplaints(selectedPropertyId: string | null, ctxLoadi
     resolver: zodResolver(ComplaintResolveSchema) as unknown,
     defaultValues: { repairCost: '', resolutionNotes: '' },
   });
-  const loadData = () => {
-    if (selectedPropertyId) {      setComplaints(api.managerOperations.listComplaints(selectedPropertyId) as unknown as ManagerComplaintData[]);
+  const loadData = async () => {
+    if (selectedPropertyId) {
+      try {
+        setComplaints((await api.managerOperations.listComplaints(selectedPropertyId)) as unknown as ManagerComplaintData[]);
+      } catch (e) {
+        setComplaints([]);
+        console.error('Failed to load complaints:', e);
+      }
     }
   };
   // Re-fetch complaints when property changes or context loading finishes.
@@ -48,17 +54,25 @@ export function useManagerComplaints(selectedPropertyId: string | null, ctxLoadi
     setResolvingComplaint(null);
   };
   // RHF handleSubmit â€” receives validated data, no manual parsing needed
-  const handleResolveSubmit = resolveForm.handleSubmit((data: ComplaintResolveFormData) => {
+  const handleResolveSubmit = resolveForm.handleSubmit(async (data: ComplaintResolveFormData) => {
 
     if (!resolvingComplaint) return;
     const cost = parseFloat(data.repairCost || '0') || 0;
-    api.managerOperations.resolveComplaintWithCost(resolvingComplaint.id, cost, data.resolutionNotes || '', 'manager');
+    try {
+      await api.managerOperations.resolveComplaintWithCost(resolvingComplaint.id, cost, data.resolutionNotes || '', 'manager');
+    } catch (e) {
+      console.error('Failed to resolve complaint:', e);
+    }
     onCloseResolveModal();
-    loadData();
+    await loadData();
   });
-  const handleStartWork = (id: string) => {
-    api.managerOperations.updateComplaintStatus(id, 'In Progress', 'manager');
-    loadData();
+  const handleStartWork = async (id: string) => {
+    try {
+      await api.managerOperations.updateComplaintStatus(id, 'In Progress', 'manager');
+    } catch (e) {
+      console.error('Failed to update complaint status:', e);
+    }
+    await loadData();
   };
   const activeComplaints = complaints.filter(c => c.status !== 'Resolved');
   const resolvedComplaints = complaints.filter(c => c.status === 'Resolved').sort((a,b) => new Date((b as Record<string, unknown>).resolvedAt || (b as Record<string, unknown>).updatedAt).getTime() - new Date(a.resolvedAt || a.updatedAt).getTime());

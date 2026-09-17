@@ -3,7 +3,7 @@
 // RESPONSIBILITY: Renders the OwnerAttendanceMain component. Receives data via props/hooks.
 
 import { useState, useEffect } from 'react';
-import { Users, CheckCircle2, XCircle, Search, Building } from 'lucide-react';
+import { Users, CheckCircle2, XCircle, Search, Building, Printer, QrCode } from 'lucide-react';
 import { format } from 'date-fns';
 
 import { teamApi } from '@/app/owner/owner_lib/owner_api/OwnerTeam';
@@ -16,6 +16,7 @@ import { attendanceApi } from '@/app/owner/owner_lib/owner_api/OwnerAttendance';
 import type { StaffAttendance } from '@/app/owner/owner_lib/owner_api/OwnerAttendance';
 import type { TeamMember } from '@/app/owner/owner_lib/owner_api/OwnerTeam';
 import { adminRequest } from '@/app/owner/owner_lib/owner_api/AdminClient';
+import { GateQrPosterModal } from '@/components/qr/GateQrPosterModal';
 
 export function OwnerAttendanceMain() {
   const user = typeof window !== 'undefined' ? getSession() : null;
@@ -25,6 +26,10 @@ export function OwnerAttendanceMain() {
   const [attendance, setAttendance] = useState<StaffAttendance[]>([]);
   const [loading, setLoading] = useState(true);
   const [dateStr, setDateStr] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [isPosterOpen, setIsPosterOpen] = useState(false);
+
+  // The gate QR poster is per-property; `all` is not a printable target.
+  const posterPropertyId = selectedPropertyId && selectedPropertyId !== 'all' ? selectedPropertyId : '';
 
   const { page: currentPage, setPage: setCurrentPage, search: searchQuery, setSearch: setSearchQuery, debouncedSearch } = useTableSync();
   const itemsPerPage = 10;
@@ -133,6 +138,23 @@ export function OwnerAttendanceMain() {
           <h1 className="text-[22px] font-bold text-primary">Staff Attendance</h1>
           <p className="text-sm text-secondary">Monitor daily attendance of your staff across all properties.</p>
         </div>
+
+        {/* Residents scan the printed poster to mark their own gate attendance. */}
+        <div className="flex flex-col items-start sm:items-end gap-1 shrink-0">
+          <button
+            onClick={() => setIsPosterOpen(true)}
+            disabled={!posterPropertyId}
+            title={posterPropertyId ? 'Generate and print the resident gate QR poster' : 'Select a single property to print its gate QR poster'}
+            className="flex items-center gap-2 px-4 py-2.5 bg-primary text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-md hover:bg-primary-hover active:scale-95 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Printer className="w-4 h-4" />
+            <QrCode className="w-4 h-4" />
+            <span>Print Gate QR Poster</span>
+          </button>
+          <span className="text-[10px] text-secondary">
+            {posterPropertyId ? 'Signed, scannable code for the wall' : 'Pick a property in the top bar first'}
+          </span>
+        </div>
       </div>
 
       <div className="bg-card p-4 border border-border rounded-md flex flex-col md:flex-row gap-4">
@@ -235,6 +257,13 @@ export function OwnerAttendanceMain() {
           )}
         </div>
       )}
+
+      {/* Wall poster: signed QR, printable at A4 */}
+      <GateQrPosterModal
+        isOpen={isPosterOpen}
+        onClose={() => setIsPosterOpen(false)}
+        propertyId={posterPropertyId}
+      />
     </div>
   );
 }
